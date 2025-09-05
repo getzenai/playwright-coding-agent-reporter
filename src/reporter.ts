@@ -33,6 +33,36 @@ export class CodingAgentReporter implements Reporter {
   private markdownFormatter: MarkdownFormatter;
   private simpleMarkdownFormatter: MarkdownFormatter;
 
+  // Safety helpers
+  private isSubdirectory(parentDir: string, dir: string): boolean {
+    const relativePath = path.relative(parentDir, dir);
+    return !!relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+  }
+
+  private isSafeToRemove(dir: string): boolean {
+    // Resolve against CWD and guard against removing root or project root
+    const cwd = process.cwd();
+    const abs = path.resolve(cwd, dir);
+    let realAbs = abs;
+    try {
+      if (fs.existsSync(abs)) realAbs = fs.realpathSync(abs);
+    } catch {}
+    const root = path.parse(realAbs).root;
+    const relToCwd = path.relative(cwd, realAbs);
+    // Must be inside CWD, not equal to CWD, and not filesystem root
+    if (!relToCwd || relToCwd === '' || relToCwd === '.') return false;
+    if (realAbs === cwd) return false;
+    if (realAbs === root) return false;
+    if (relToCwd.startsWith('..') || path.isAbsolute(relToCwd)) return false;
+    return true;
+  }
+
+  private ensureOutputDir(): void {
+    try {
+      fs.mkdirSync(this.outputDir, { recursive: true });
+    } catch {}
+  }
+
   constructor(options: CodingAgentReporterOptions = {}) {
     this.options = {
       outputDir: options.outputDir || 'test-results',
@@ -79,10 +109,76 @@ export class CodingAgentReporter implements Reporter {
     this.workers = config.workers || 1;
     this.totalTests = this.countTests(suite);
 
-    if (fs.existsSync(this.outputDir)) {
-      fs.rmSync(this.outputDir, { recursive: true });
+    // Warn if our output folder clashes with any project outputDir (mirroring Playwright HTML reporter UX)
+    const projects: any[] = (config as any).projects || [];
+    const reported = new Set<string>();
+    for (const project of projects) {
+      const projectOutput: string | undefined = project?.outputDir;
+      if (!projectOutput) continue;
+      const our = this.outputDir;
+      if (this.isSubdirectory(our, projectOutput) || this.isSubdirectory(projectOutput, our)) {
+        const key = `${our}|${projectOutput}`;
+        if (!reported.has(key)) {
+          reported.add(key);
+          // eslint-disable-next-line no-console
+          console.log(
+            `\n\x1b[31mConfiguration Warning:\x1b[0m Reporter output folder may clash with Playwright test output folder:\n\n` +
+              `    reporter folder: ${our}\n` +
+              `    test output:    ${projectOutput}\n\n` +
+              `Reporter may clear or overwrite files it manages in its folder. Use a distinct folder to avoid artifact loss.\n`
+          );
+        }
+      }
     }
-    fs.mkdirSync(this.outputDir, { recursive: true });
+
+    // Clear only if safe and not opted out
+    const doNotRemove = process.env.PLAYWRIGHT_AGENT_DO_NOT_REMOVE;
+    if (!doNotRemove) {
+      if (fs.existsSync(this.outputDir)) {
+        if (this.isSafeToRemove(this.outputDir)) {
+          try {
+            // Only remove files we own to avoid wiping unrelated artifacts when overlapping with Playwright output
+            // Remove consolidated report and reporter-created assets from previous runs
+            const candidates = [path.join(this.outputDir, 'error-context.md')];
+            for (const file of candidates) {
+              try {
+                if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+              } catch {}
+            }
+            // Remove reporter-created screenshots at root and under ./screenshots
+            try {
+              const files = fs.readdirSync(this.outputDir);
+              for (const f of files) {
+                if (/^failure-\d+-.*\.png$/i.test(f)) {
+                  try {
+                    fs.rmSync(path.join(this.outputDir, f), { force: true });
+                  } catch {}
+                }
+              }
+            } catch {}
+            const screenshotsDir = path.join(this.outputDir, 'screenshots');
+            if (fs.existsSync(screenshotsDir)) {
+              try {
+                fs.rmSync(screenshotsDir, { recursive: true, force: true });
+              } catch {}
+            }
+            const tracesDir = path.join(this.outputDir, 'traces');
+            if (fs.existsSync(tracesDir)) {
+              try {
+                fs.rmSync(tracesDir, { recursive: true, force: true });
+              } catch {}
+            }
+          } catch {}
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(
+            `\n\x1b[33mSafety Warning:\x1b[0m Skipping cleanup of outputDir because it is not safely contained within the project: ${this.outputDir}\n`
+          );
+        }
+      }
+    }
+
+    this.ensureOutputDir();
 
     if (!this.options.silent) {
       console.log(
