@@ -1,0 +1,10 @@
+src/
+test/
+test-reports/
+playwright-agent-report/
+.gitignore
+tsconfig.json
+*.tgz
+*.log
+.DS_Store
+node_modules/

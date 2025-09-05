@@ -1,0 +1,59 @@
+{
+  "name": "@zenai/playwright-coding-agent-reporter",
+  "version": "0.1.0",
+  "description": "A coding agent friendly reporter for playwright, so that your coding agent finally really understands what is going wrong",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "playwright test",
+    "test:example": "playwright test --config=test/playwright.config.ts",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getzenai/playwright-coding-agent-reporter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/getzenai/playwright-coding-agent-reporter/issues"
+  },
+  "homepage": "https://github.com/getzenai/playwright-coding-agent-reporter#readme",
+  "keywords": [
+    "playwright",
+    "reporter",
+    "testing",
+    "llm",
+    "agent",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@playwright/test": "^1.55.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/release-notes-generator": "^14.0.3",
+    "@types/node": "^24.3.1",
+    "husky": "^9.1.7",
+    "prettier": "^3.6.2",
+    "semantic-release": "^24.2.7",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40.0"
+  }
+}
