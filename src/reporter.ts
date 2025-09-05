@@ -511,6 +511,17 @@ export class CodingAgentReporter implements Reporter {
             console.log('');
           }
         }
+
+        // Show visible text (truncated for console)
+        if (failure.pageState.visibleText) {
+          console.log('        📄 Visible Text (first 500 chars):');
+          const truncatedText =
+            failure.pageState.visibleText.length > 500
+              ? failure.pageState.visibleText.substring(0, 500) + '...'
+              : failure.pageState.visibleText;
+          console.log(`          ${truncatedText}`);
+          console.log('');
+        }
       }
 
       // Show reproduction command
