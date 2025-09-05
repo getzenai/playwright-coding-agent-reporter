@@ -10,14 +10,14 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { CodingAgentReporterOptions, FailureContext, TestSummary } from './types';
+import {
+  ConsoleFormatter,
+  MarkdownFormatter,
+  FormatterOptions,
+  MAX_SIMILAR_SUGGESTIONS,
+} from './formatters';
 
-// Constants for limits and thresholds
-const MAX_VISIBLE_TEXT_LENGTH = 500;
-const MAX_SELECTORS_TO_SHOW = 50;
-const MAX_ACTION_HISTORY = 20;
-const MAX_HTML_SNIPPET_LENGTH = 2000;
-const MAX_SIMILAR_SUGGESTIONS = 5;
-const MAX_SELECTORS_PER_CATEGORY = 10;
+// Constants for similarity threshold
 const SIMILARITY_THRESHOLD = 0.5;
 
 export class CodingAgentReporter implements Reporter {
@@ -29,6 +29,9 @@ export class CodingAgentReporter implements Reporter {
   private testCounter: number = 0;
   private totalTests: number = 0;
   private workers: number = 1;
+  private consoleFormatter: ConsoleFormatter;
+  private markdownFormatter: MarkdownFormatter;
+  private simpleMarkdownFormatter: MarkdownFormatter;
 
   constructor(options: CodingAgentReporterOptions = {}) {
     this.options = {
@@ -57,6 +60,18 @@ export class CodingAgentReporter implements Reporter {
       duration: 0,
       failures: [],
     };
+
+    // Initialize formatters
+    const formatterOptions: FormatterOptions = {
+      maxErrorLength: this.options.maxErrorLength,
+      showCodeSnippet: this.options.showCodeSnippet,
+      verboseErrors: this.options.verboseErrors,
+      capturePageState: this.options.capturePageState,
+    };
+
+    this.consoleFormatter = new ConsoleFormatter(formatterOptions);
+    this.markdownFormatter = new MarkdownFormatter(formatterOptions, true, true);
+    this.simpleMarkdownFormatter = new MarkdownFormatter(formatterOptions, false, false);
   }
 
   onBegin(config: FullConfig, suite: Suite): void {
@@ -409,130 +424,30 @@ export class CodingAgentReporter implements Reporter {
       : this.failures;
 
     failuresToShow.forEach((failure, index) => {
-      const fileName = failure.testFile.replace(process.cwd() + '/', '');
+      // Sort selectors if needed
+      if (failure.pageState?.availableSelectors) {
+        const errorMsg = failure.error.message || '';
+        const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+        const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
 
-      // Extract the actual error line from the error snippet if available
-      let errorLineNumber = failure.lineNumber || 0;
-      if (failure.error.snippet) {
-        const snippetMatch = failure.error.snippet.match(/>\s*(\d+)\s*\|/);
-        if (snippetMatch) {
-          errorLineNumber = parseInt(snippetMatch[1], 10);
+        if (failedSelector && errorMsg.includes('not found')) {
+          failure.pageState.availableSelectors = this.sortSelectorsBySimilarity(
+            failedSelector,
+            failure.pageState.availableSelectors
+          );
         }
       }
 
-      const testPath = `${fileName}:${errorLineNumber}:7`;
-      const testIndex = failure.testIndex || index + 1;
-      const duration = failure.duration ? ` (${failure.duration}ms)` : '';
-      const fullTestName = failure.suiteName
-        ? `${failure.suiteName} › ${failure.testTitle}`
-        : failure.testTitle;
-
-      console.log(
-        `  ${testIndex}) ${testPath} › ${fullTestName}${duration} ${'─'.repeat(Math.max(0, 60 - testPath.length - fullTestName.length))}`
-      );
-
-      // Show detailed error information (same as markdown report)
-      console.log('');
-      console.log('      Error:');
-      const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
-      const cleanMessage = this.stripAnsiCodes(errorMessage);
-      const errorLines = cleanMessage.split('\n');
-      errorLines.forEach((line) => {
-        console.log(`        ${line}`);
-      });
-      console.log('');
-
-      // Show error location code snippet
-      if (failure.error.snippet) {
-        console.log('      Error Location:');
-        const cleanSnippet = this.stripAnsiCodes(failure.error.snippet);
-        const snippetLines = cleanSnippet.split('\n');
-        snippetLines.forEach((line) => {
-          console.log(`        ${line}`);
-        });
-        console.log('');
-      }
-
-      // Show page state information
-      if (failure.pageState && this.options.capturePageState) {
-        console.log('      🔍 Page State When Failed:');
-
-        if (failure.pageState.url || failure.pageUrl) {
-          console.log(`        URL: ${failure.pageState.url || failure.pageUrl}`);
-        }
-        if (failure.pageState.title) {
-          console.log(`        Title: ${failure.pageState.title}`);
-        }
-        console.log('');
-
-        // Show recent actions
-        if (failure.pageState.actionHistory && failure.pageState.actionHistory.length > 0) {
-          console.log('        📜 Recent Actions:');
-          const recentActions = failure.pageState.actionHistory.slice(-3);
-          recentActions.forEach((action) => {
-            console.log(`          ${action}`);
-          });
-          console.log('');
-        }
-
-        // Show available selectors (limited for console)
-        if (
-          failure.pageState.availableSelectors &&
-          failure.pageState.availableSelectors.length > 0
-        ) {
-          const errorMsg = failure.error.message || '';
-          const isElementNotFound =
-            errorMsg.includes('not found') ||
-            errorMsg.includes('no element') ||
-            errorMsg.includes('<element(s) not found>');
-
-          if (isElementNotFound) {
-            // Extract the failed selector from error message
-            const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
-            const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
-
-            let selectorsToShow = failure.pageState.availableSelectors;
-
-            // Sort by similarity if we know what selector failed
-            if (failedSelector) {
-              const sortedSelectors = this.sortSelectorsBySimilarity(
-                failedSelector,
-                failure.pageState.availableSelectors
-              );
-              selectorsToShow = sortedSelectors;
-            }
-
-            console.log('        🎯 Available Selectors (sorted by relevance):');
-            const limitedSelectors = selectorsToShow.slice(0, MAX_SELECTORS_TO_SHOW);
-            limitedSelectors.forEach((selector) => {
-              console.log(`          ${selector}`);
-            });
-            if (selectorsToShow.length > MAX_SELECTORS_TO_SHOW) {
-              console.log(
-                `          ... and ${selectorsToShow.length - MAX_SELECTORS_TO_SHOW} more`
-              );
-            }
-            console.log('');
-          }
-        }
-
-        // Show visible text (truncated for console)
-        if (failure.pageState.visibleText) {
-          console.log(`        📄 Visible Text (first ${MAX_VISIBLE_TEXT_LENGTH} chars):`);
-          const truncatedText =
-            failure.pageState.visibleText.length > MAX_VISIBLE_TEXT_LENGTH
-              ? failure.pageState.visibleText.substring(0, MAX_VISIBLE_TEXT_LENGTH) + '...'
-              : failure.pageState.visibleText;
-          console.log(`          ${truncatedText}`);
-          console.log('');
-        }
-      }
+      // Extract error data and format using ConsoleFormatter
+      const errorData = this.consoleFormatter.extractErrorData(failure, index + 1);
+      const formattedOutput = this.consoleFormatter.formatError(errorData);
+      console.log(formattedOutput);
 
       // Show link to detailed report
       const reportPath = this.options.singleReportFile
         ? path.join(this.outputDir, 'error-context.md')
         : path.join(this.outputDir, `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.md`);
-      console.log(`      📝 Full Error Context: ${reportPath}`);
+      console.log(`\n  📝 **Full Error Context:** ${reportPath}`);
       console.log('');
     });
 
@@ -681,199 +596,33 @@ export class CodingAgentReporter implements Reporter {
 
     for (let i = 0; i < this.failures.length; i++) {
       const failure = this.failures[i];
-      const fileName = failure.testFile.replace(process.cwd() + '/', '');
-      const testPath = `${fileName}:${failure.lineNumber || 0}:7`;
-      const duration = failure.duration ? ` (${failure.duration}ms)` : '';
-      const fullTestName = failure.suiteName
-        ? `${failure.suiteName} › ${failure.testTitle}`
-        : failure.testTitle;
 
-      // Use Playwright's format: ✘  2 test/fixtures/example.spec.ts:9:7 › Suite › test name (duration)
-      report += `## ✘  ${i + 1} ${testPath} › ${fullTestName}${duration}\n\n`;
+      // Sort selectors if needed
+      if (failure.pageState?.availableSelectors) {
+        const errorMsg = failure.error.message || '';
+        const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+        const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
 
-      report += `### Error\n`;
-      report += '```\n';
-      const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
-      const cleanMessage = this.stripAnsiCodes(errorMessage);
-      report += cleanMessage.substring(0, this.options.maxErrorLength);
-      if (cleanMessage.length > this.options.maxErrorLength) {
-        report += '\n... (truncated)';
-      }
-      report += '\n```\n\n';
-
-      // Add code snippet showing the error location
-      if (failure.error.snippet) {
-        report += `<details>\n<summary>Error Location</summary>\n\n`;
-        report += '```typescript\n';
-        report += this.stripAnsiCodes(failure.error.snippet);
-        report += '\n```\n</details>\n\n';
-      }
-
-      if (failure.pageState && this.options.capturePageState) {
-        report += `### 🔍 Page State When Failed\n\n`;
-
-        if (failure.pageState.url || failure.pageState.title || failure.pageUrl) {
-          report += `**URL:** ${failure.pageState.url || failure.pageUrl || 'unknown'}\n`;
-          report += `**Title:** ${failure.pageState.title || 'unknown'}\n\n`;
-        }
-
-        // Action history
-        if (failure.pageState.actionHistory && failure.pageState.actionHistory.length > 0) {
-          report += `<details>\n<summary>📜 Action History (last ${failure.pageState.actionHistory.length} actions)</summary>\n\n`;
-          report += '```\n';
-          for (const action of failure.pageState.actionHistory) {
-            report += `${action}\n`;
-          }
-          report += '```\n</details>\n\n';
-        }
-
-        // Available selectors
-        if (
-          failure.pageState.availableSelectors &&
-          failure.pageState.availableSelectors.length > 0
-        ) {
-          // Extract the failed selector from error message if available
-          const errorMsg = failure.error.message || '';
-          const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
-          const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
-
-          let selectorsToDisplay = failure.pageState.availableSelectors;
-
-          // Sort by similarity if we know what selector failed
-          if (failedSelector && errorMsg.includes('not found')) {
-            selectorsToDisplay = this.sortSelectorsBySimilarity(
-              failedSelector,
-              failure.pageState.availableSelectors
-            );
-          }
-
-          report += `<details>\n<summary>🎯 Available Selectors on Page (${failure.pageState.availableSelectors.length} found)</summary>\n\n`;
-
-          if (failedSelector && errorMsg.includes('not found')) {
-            report += `Looking for: **${failedSelector}**\n\n`;
-            const topSimilar = selectorsToDisplay.slice(0, MAX_SIMILAR_SUGGESTIONS);
-            if (topSimilar.length > 0) {
-              report += '**💡 Most similar selectors:**\n```\n';
-              topSimilar.forEach((s) => (report += `${s}\n`));
-              report += '```\n\n';
-            }
-          }
-
-          report += 'These selectors were actually present on the page:\n\n';
-          report += '```\n';
-
-          // Group selectors by type
-          const buttons = selectorsToDisplay.filter((s) => s.includes('button'));
-          const links = selectorsToDisplay.filter((s) => s.includes('a:') || s.includes('href'));
-          const inputs = selectorsToDisplay.filter(
-            (s) => s.includes('input') || s.includes('[name=') || s.includes('[placeholder=')
+        if (failedSelector && errorMsg.includes('not found')) {
+          failure.pageState.availableSelectors = this.sortSelectorsBySimilarity(
+            failedSelector,
+            failure.pageState.availableSelectors
           );
-          const ids = selectorsToDisplay.filter((s) => s.startsWith('#'));
-          const others = selectorsToDisplay.filter(
-            (s) =>
-              !buttons.includes(s) && !links.includes(s) && !inputs.includes(s) && !ids.includes(s)
-          );
-
-          if (buttons.length > 0) {
-            report += '# Buttons:\n';
-            for (const btn of buttons.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
-              report += `  ${btn}\n`;
-            }
-          }
-
-          if (links.length > 0) {
-            report += '\n# Links:\n';
-            for (const link of links.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
-              report += `  ${link}\n`;
-            }
-          }
-
-          if (inputs.length > 0) {
-            report += '\n# Inputs:\n';
-            for (const input of inputs.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
-              report += `  ${input}\n`;
-            }
-          }
-
-          if (ids.length > 0) {
-            report += '\n# Elements with IDs:\n';
-            for (const id of ids.slice(0, 15)) {
-              report += `  ${id}\n`;
-            }
-          }
-
-          if (others.length > 0) {
-            report += '\n# Other Elements:\n';
-            for (const other of others.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
-              report += `  ${other}\n`;
-            }
-          }
-
-          report += '```\n</details>\n\n';
-        }
-
-        // Visible text
-        if (failure.pageState.visibleText) {
-          report += `<details>\n<summary>📄 Visible Text on Page</summary>\n\n`;
-          report += '```\n';
-          report += failure.pageState.visibleText;
-          report += '\n```\n</details>\n\n';
-        }
-
-        // HTML snippet
-        if (failure.pageState.htmlSnippet) {
-          report += `<details>\n<summary>🔧 HTML Context</summary>\n\n`;
-          report += '```html\n';
-          report += failure.pageState.htmlSnippet.substring(0, MAX_HTML_SNIPPET_LENGTH);
-          if (failure.pageState.htmlSnippet.length > MAX_HTML_SNIPPET_LENGTH) {
-            report += '\n... (truncated)';
-          }
-          report += '\n```\n</details>\n\n';
         }
       }
 
-      if (failure.consoleErrors && failure.consoleErrors.length > 0) {
-        report += `### Console Errors\n`;
-        report += '```\n';
-        for (const error of failure.consoleErrors) {
-          report += `${error}\n`;
-        }
-        report += '```\n\n';
-      }
-
-      if (failure.networkErrors && failure.networkErrors.length > 0) {
-        report += `### Network Errors\n`;
-        report += '```\n';
-        for (const error of failure.networkErrors) {
-          report += `${error}\n`;
-        }
-        report += '```\n\n';
-      }
-
-      if (failure.stdout.length > 0) {
-        report += `<details>\n<summary>Test Output (stdout)</summary>\n\n`;
-        report += '```\n';
-        report += failure.stdout.join('\n');
-        report += '\n```\n</details>\n\n';
-      }
-
-      if (failure.stderr.length > 0) {
-        report += `<details>\n<summary>Test Errors (stderr)</summary>\n\n`;
-        report += '```\n';
-        report += failure.stderr.join('\n');
-        report += '\n```\n</details>\n\n';
-      }
-
+      // Save screenshot if present
       if (failure.screenshot) {
         const screenshotName = `failure-${i + 1}-${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.png`;
         const screenshotPath = path.join(this.outputDir, screenshotName);
         fs.writeFileSync(screenshotPath, failure.screenshot);
-
-        report += `### Screenshot\n`;
-        report += `![Screenshot](./${screenshotName})\n\n`;
       }
 
-      report += `---\n\n`;
+      // Extract error data and format using MarkdownFormatter
+      const errorData = this.markdownFormatter.extractErrorData(failure, i + 1);
+      const formattedOutput = this.markdownFormatter.formatError(errorData);
+      report += formattedOutput;
+      report += '\n---\n\n';
     }
 
     await fs.promises.writeFile(reportPath, report, 'utf-8');
@@ -940,55 +689,29 @@ export class CodingAgentReporter implements Reporter {
   }
 
   private async generateIndividualErrorReport(failure: FailureContext): Promise<string> {
+    // Sort selectors if needed (though individual reports don't sort by similarity)
+    // We keep the original order for individual reports
+
+    // Extract error data and format using simple MarkdownFormatter (no collapsible sections, no emoji)
+    const errorData = this.simpleMarkdownFormatter.extractErrorData(failure, 1);
+
+    // Override the header to use the simpler format for individual reports
     let report = `# Error Context: ${failure.testTitle}\n\n`;
     report += `## Test Location\n`;
     report += `${failure.testFile}:${failure.lineNumber || 0}\n\n`;
 
-    report += `## Error\n`;
-    const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
-    const cleanMessage = this.stripAnsiCodes(errorMessage);
-    report += cleanMessage + '\n\n';
+    // Format the rest using the simple markdown formatter
+    const formattedOutput = this.simpleMarkdownFormatter.formatError(errorData);
 
-    // Add code snippet showing the error location
-    if (failure.error.snippet) {
-      report += `## Code Location\n`;
-      report += '```\n';
-      report += this.stripAnsiCodes(failure.error.snippet);
-      report += '\n```\n\n';
-    }
-
-    if (failure.pageState) {
-      report += `## Page State\n`;
-      report += `**URL:** ${failure.pageState.url || failure.pageUrl || 'unknown'}\n`;
-      report += `**Title:** ${failure.pageState.title || 'unknown'}\n\n`;
-
-      if (failure.pageState.availableSelectors && failure.pageState.availableSelectors.length > 0) {
-        report += `### Available Selectors\n`;
-        report += failure.pageState.availableSelectors.join('\n');
-        report += '\n\n';
-      }
-
-      if (failure.pageState.visibleText) {
-        report += `### Visible Text\n`;
-        // Visible text is already condensed from the test fixture
-        report += failure.pageState.visibleText;
-        report += '\n\n';
-      }
-
-      if (failure.pageState.actionHistory && failure.pageState.actionHistory.length > 0) {
-        report += `### Action History\n`;
-        report += failure.pageState.actionHistory.join('\n');
-        report += '\n\n';
-      }
-
-      if (failure.pageState.htmlSnippet) {
-        report += `### HTML Context\n`;
-        report += failure.pageState.htmlSnippet.substring(0, MAX_HTML_SNIPPET_LENGTH);
-        if (failure.pageState.htmlSnippet.length > MAX_HTML_SNIPPET_LENGTH) {
-          report += '\n... (truncated)';
-        }
-        report += '\n';
-      }
+    // Extract just the parts we want (skip the header which we already added)
+    const lines = formattedOutput.split('\n');
+    const startIndex = lines.findIndex(
+      (line) => line.startsWith('### Error') || line.startsWith('## Error')
+    );
+    if (startIndex !== -1) {
+      report += lines.slice(startIndex).join('\n');
+    } else {
+      report += formattedOutput;
     }
 
     return report;
