@@ -1,0 +1,1 @@
+- you need to run npm run test:example to actually see the reporter outputs, otherwise playwright will use the standard reporter

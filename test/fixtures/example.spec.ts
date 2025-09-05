@@ -38,10 +38,8 @@ test.describe('Example Test Suite', () => {
     await page.goto('https://playwright.dev');
   });
 
-  test('test with accessibility tree capture', async ({ page }) => {
+  test('test with missing element for selector similarity', async ({ page }) => {
     await page.goto('https://playwright.dev');
-
-    const accessibilityTree = await page.accessibility.snapshot();
 
     await expect(page.locator('.this-does-not-exist')).toBeVisible();
   });

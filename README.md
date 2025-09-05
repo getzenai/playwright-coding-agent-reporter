@@ -10,7 +10,8 @@ A specialized Playwright reporter designed for AI/LLM coding agents that provide
 
 - 🤫 **Silent Success Mode**: No output for passing tests - only failures matter
 - 🎯 **Error-Focused**: Captures complete failure context including exact line numbers, stack traces, and page state
-- 📸 **Rich Context**: Includes accessibility tree, console errors, network failures, and screenshots
+- 📸 **Rich Context**: Includes console errors, network failures, and screenshots
+- 💚 **Smart Selector Suggestions**: Uses Levenshtein distance to suggest similar selectors when elements aren't found
 - 📝 **Markdown Reports**: Clean, structured markdown output for easy parsing by LLMs
 - ⚡ **Performance Optimized**: Minimal overhead, async file operations
 - 🔧 **Highly Configurable**: Customize what data to capture and report
@@ -38,7 +39,6 @@ export default defineConfig({
       {
         outputDir: 'test-results',
         includeScreenshots: true,
-        includeAccessibilityTree: true,
         includeVideo: false, // Off by default for efficiency
         silent: false, // Show helpful console output
         singleReportFile: true, // All errors in one file
@@ -54,18 +54,17 @@ export default defineConfig({
 
 ### Configuration Options
 
-| Option                     | Type    | Default          | Description                                           |
-| -------------------------- | ------- | ---------------- | ----------------------------------------------------- |
-| `outputDir`                | string  | `'test-results'` | Directory for report output                           |
-| `includeScreenshots`       | boolean | `true`           | Capture screenshots on failure                        |
-| `includeAccessibilityTree` | boolean | `true`           | Include accessibility tree in reports                 |
-| `includeConsoleErrors`     | boolean | `true`           | Capture console errors and warnings                   |
-| `includeNetworkErrors`     | boolean | `true`           | Capture network request failures                      |
-| `includeVideo`             | boolean | `false`          | Include video capture (off by default for efficiency) |
-| `silent`                   | boolean | `true`           | Suppress console output for passing tests             |
-| `maxErrorLength`           | number  | `5000`           | Maximum error message length                          |
-| `outputFormat`             | string  | `'markdown'`     | Report format (currently only markdown)               |
-| `singleReportFile`         | boolean | `true`           | Generate single consolidated error-context.md file    |
+| Option                 | Type    | Default          | Description                                           |
+| ---------------------- | ------- | ---------------- | ----------------------------------------------------- |
+| `outputDir`            | string  | `'test-results'` | Directory for report output                           |
+| `includeScreenshots`   | boolean | `true`           | Capture screenshots on failure                        |
+| `includeConsoleErrors` | boolean | `true`           | Capture console errors and warnings                   |
+| `includeNetworkErrors` | boolean | `true`           | Capture network request failures                      |
+| `includeVideo`         | boolean | `false`          | Include video capture (off by default for efficiency) |
+| `silent`               | boolean | `true`           | Suppress console output for passing tests             |
+| `maxErrorLength`       | number  | `5000`           | Maximum error message length                          |
+| `outputFormat`         | string  | `'markdown'`     | Report format (currently only markdown)               |
+| `singleReportFile`     | boolean | `true`           | Generate single consolidated error-context.md file    |
 
 ### Output Structure
 
@@ -85,7 +84,7 @@ The `error-context.md` file contains:
 - All test failures in one place
 - Error messages and stack traces
 - Console/network errors
-- Accessibility trees (collapsible)
+- Smart selector suggestions when elements not found
 - Screenshots embedded inline
 - Reproduction commands for each test
 
@@ -95,7 +94,7 @@ Each failure report includes:
 
 - **Test Location**: Exact file path and line number
 - **Error Details**: Complete error message and stack trace
-- **Page Context**: Current URL, accessibility tree
+- **Page Context**: Current URL, page title, available selectors
 - **Console Output**: Captured errors and warnings
 - **Network Errors**: Failed requests
 - **Screenshots**: Visual state at failure
@@ -104,20 +103,57 @@ Each failure report includes:
 ### Console Output Example
 
 ```
-🧪 Starting test run...
+Running 6 tests using 1 worker
 
-  ❌ failing test - element not found
-     └─ example.spec.ts:9
-     └─ Error: expect(locator).toBeVisible() failed...
-  ❌ failing test - assertion failure
-     └─ example.spec.ts:20
-     └─ Error: expect(received).toBe(expected)...
+  ✓  1 test/fixtures/example.spec.ts:4:7 › Example Test Suite › successful test - should pass (422ms)
+  ✘  2 test/fixtures/example.spec.ts:9:7 › Example Test Suite › failing test - element not found (5330ms)
+  ✘  3 test/fixtures/example.spec.ts:20:7 › Example Test Suite › failing test - assertion failure (475ms)
+  ✘  4 test/fixtures/example.spec.ts:27:7 › Example Test Suite › failing test with network error (5368ms)
+  -  5 test/fixtures/example.spec.ts:37:8 › Example Test Suite › skipped test
+  ✘  6 test/fixtures/example.spec.ts:41:7 › Example Test Suite › test with missing element for selector similarity (5430ms)
 
-📊 Test Summary:
-   Total: 6 | Passed: 1 ✅ | Failed: 4 ❌ | Skipped: 1 ⏭️
-   Duration: 21.47s
+  2) test/fixtures/example.spec.ts:17:7 › Example Test Suite › failing test - element not found (5330ms)
 
-📝 Error report: /workspaces/project/test-results/error-context.md
+      Error:
+        Error: expect(locator).toBeVisible() failed
+
+        Locator:  locator('#non-existent-element')
+        Expected: visible
+        Received: <element(s) not found>
+        Timeout:  5000ms
+
+      🔍 Page State When Failed:
+        URL: https://playwright.dev/
+        Title: Fast and reliable end-to-end testing for modern web apps | Playwright
+
+        📜 Recent Actions:
+          2025-09-05T17:35:12.417Z - ✓ DOM ready: https://playwright.dev/
+          2025-09-05T17:35:12.432Z - ✓ Page loaded: https://playwright.dev/
+          2025-09-05T17:35:12.451Z - ✗ Console error: This is a console error for testing
+
+        💚 Did you mean one of these?
+          #__docusaurus
+          #__docusaurus_skipToContent_fallback
+          #theme-svg-external-link
+
+        🎯 Available Selectors (sorted by relevance):
+          button.navbar__toggle
+          button.clean-btn
+          button:has-text("SearchK")
+          a:has-text("Skip to main content")
+          h1:has-text("Playwright enables reliable end-to-end testing for")
+          ... and 45 more
+
+      Reproduction Command:
+        npx playwright test "/workspaces/playwright-coding-agent-reporter/test/fixtures/example.spec.ts" -g "failing test - element not found"
+
+  4 failed
+  1 passed
+  1 skipped
+  6 total
+  Finished in 20.1s
+
+  📝 Detailed error report: /workspaces/playwright-coding-agent-reporter/test-results/error-context.md
 ```
 
 ### Integration with AI/LLM Agents
@@ -126,7 +162,7 @@ This reporter is optimized for AI coding assistants. When tests fail:
 
 1. **Single File Context**: The AI reads one `error-context.md` file containing all failures
 2. **Structured Information**: Each failure includes exact line numbers, error messages, and stack traces
-3. **Visual Context**: Screenshots and accessibility trees provide page state
+3. **Visual Context**: Screenshots and smart selector suggestions provide debugging insights
 4. **Immediate Debugging**: Console and network errors are captured inline
 5. **Quick Reproduction**: Ready-to-run commands for each failing test
 
@@ -149,7 +185,7 @@ test('user can complete checkout', async ({ page }) => {
   // Network failures are tracked
   await page.route('**/api/checkout', (route) => route.abort());
 
-  // Screenshots and accessibility tree captured on failure
+  // Screenshots and available selectors captured on failure
   await expect(page.locator('.checkout-success')).toBeVisible();
 });
 ```

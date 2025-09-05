@@ -14,7 +14,6 @@ export default defineConfig({
       {
         outputDir: 'test-results',
         includeScreenshots: true,
-        includeAccessibilityTree: true,
         includeConsoleErrors: true,
         includeNetworkErrors: true,
         includeVideo: false,
@@ -30,7 +29,7 @@ export default defineConfig({
   ],
 
   use: {
-    trace: 'on-first-retry',
+    trace: 'off',
     screenshot: 'only-on-failure',
     video: 'off',
   },

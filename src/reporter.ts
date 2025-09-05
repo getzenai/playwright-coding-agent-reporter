@@ -11,6 +11,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CodingAgentReporterOptions, FailureContext, TestSummary } from './types';
 
+// Constants for limits and thresholds
+const MAX_VISIBLE_TEXT_LENGTH = 500;
+const MAX_SELECTORS_TO_SHOW = 50;
+const MAX_ACTION_HISTORY = 20;
+const MAX_HTML_SNIPPET_LENGTH = 2000;
+const MAX_SIMILAR_SUGGESTIONS = 5;
+const MAX_SELECTORS_PER_CATEGORY = 10;
+const SIMILARITY_THRESHOLD = 0.5;
+
 export class CodingAgentReporter implements Reporter {
   private options: Required<CodingAgentReporterOptions>;
   private failures: FailureContext[] = [];
@@ -25,7 +34,6 @@ export class CodingAgentReporter implements Reporter {
     this.options = {
       outputDir: options.outputDir || 'test-results',
       includeScreenshots: options.includeScreenshots ?? true,
-      includeAccessibilityTree: options.includeAccessibilityTree ?? true,
       includeConsoleErrors: options.includeConsoleErrors ?? true,
       includeNetworkErrors: options.includeNetworkErrors ?? true,
       includeVideo: options.includeVideo ?? false,
@@ -147,9 +155,7 @@ export class CodingAgentReporter implements Reporter {
 
   private extractPageContext(result: TestResult, failure: FailureContext): void {
     for (const attachment of result.attachments) {
-      if (attachment.name === 'accessibility-tree' && this.options.includeAccessibilityTree) {
-        failure.accessibilityTree = attachment.body?.toString('utf-8');
-      } else if (attachment.name === 'screenshot' && this.options.includeScreenshots) {
+      if (attachment.name === 'screenshot' && this.options.includeScreenshots) {
         failure.screenshot = attachment.body;
       } else if (attachment.name === 'page-url') {
         failure.pageUrl = attachment.body?.toString('utf-8');
@@ -214,6 +220,7 @@ export class CodingAgentReporter implements Reporter {
         failure.pageState.title = attachment.body.toString('utf-8');
       }
       if (attachment.name === 'visible-text' && attachment.body && failure.pageState) {
+        // Visible text is already condensed from the test fixture
         failure.pageState.visibleText = attachment.body.toString('utf-8');
       }
       if (attachment.name === 'available-selectors' && attachment.body && failure.pageState) {
@@ -230,97 +237,79 @@ export class CodingAgentReporter implements Reporter {
     }
   }
 
-  private generateDebuggingSuggestions_REMOVED(failure: FailureContext): string[] {
-    const suggestions: string[] = [];
-    const errorMsg = failure.error.message || '';
-
-    // For element not found errors
-    if (
-      errorMsg.includes('not found') ||
-      errorMsg.includes('no element') ||
-      errorMsg.includes('waiting for')
-    ) {
-      const selectorMatch = errorMsg.match(
-        /locator\(['"](.*?)['"]\)|waiting for (.+?)\s|selector:?\s*(.+?)\s/i
-      );
-      if (selectorMatch) {
-        const selector = selectorMatch[1] || selectorMatch[2] || selectorMatch[3];
-        suggestions.push(`Element "${selector}" was not found on the page`);
-
-        if (
-          failure.pageState?.availableSelectors &&
-          failure.pageState.availableSelectors.length > 0
-        ) {
-          // Find similar selectors
-          const similar = this.findSimilarSelectors(selector, failure.pageState.availableSelectors);
-          if (similar.length > 0) {
-            suggestions.push(`Did you mean one of these? ${similar.slice(0, 3).join(', ')}`);
-          }
-        }
-
-        suggestions.push(
-          'Try using a text-based selector like: text="Your Text" or page.getByText("Your Text")'
-        );
-        suggestions.push(
-          'Element might be loaded dynamically - consider using page.waitForSelector() first'
-        );
-      }
-    }
-
-    // For assertion failures
-    if (errorMsg.includes('Expected') && errorMsg.includes('Received')) {
-      suggestions.push('The actual value does not match the expected value');
-      suggestions.push("Check if the page content has changed or if there's a timing issue");
-      suggestions.push('Consider using waitForLoadState() or waitForSelector() before assertions');
-    }
-
-    // For timeout errors
-    if (errorMsg.includes('Timeout') || errorMsg.includes('exceeded')) {
-      suggestions.push('The operation took too long - page might be slow or element never appears');
-      suggestions.push('Try increasing the timeout or checking network conditions');
-    }
-
-    // For network errors
-    if (failure.pageState?.actionHistory) {
-      const networkErrors = failure.pageState.actionHistory.filter((a) =>
-        a.includes('Network failed')
-      );
-      if (networkErrors.length > 0) {
-        suggestions.push('Network requests failed - this might affect page content');
-        suggestions.push('Check API endpoints and network connectivity');
-      }
-    }
-
-    return suggestions;
-  }
-
   private findSimilarSelectors(target: string, available: string[]): string[] {
     const similar: string[] = [];
     const targetLower = target.toLowerCase();
 
-    // Extract meaningful parts from target
     const parts = target.match(/[a-zA-Z0-9_-]+/g) || [];
 
     for (const selector of available) {
       const selectorLower = selector.toLowerCase();
 
-      // Direct substring match
       if (parts.some((part) => selectorLower.includes(part.toLowerCase()))) {
         similar.push(selector);
         continue;
       }
 
-      // Fuzzy match for IDs and classes
       if (target.startsWith('#') && selector.startsWith('#')) {
         const targetId = target.substring(1);
         const selectorId = selector.substring(1);
-        if (this.calculateSimilarity(targetId, selectorId) > 0.5) {
+        if (this.calculateSimilarity(targetId, selectorId) > SIMILARITY_THRESHOLD) {
           similar.push(selector);
         }
       }
     }
 
-    return [...new Set(similar)].slice(0, 5);
+    return [...new Set(similar)].slice(0, MAX_SIMILAR_SUGGESTIONS);
+  }
+
+  private sortSelectorsBySimilarity(target: string, available: string[]): string[] {
+    // Calculate similarity scores for all selectors
+    const scoredSelectors = available.map((selector) => {
+      let score = 0;
+      const targetLower = target.toLowerCase();
+      const selectorLower = selector.toLowerCase();
+
+      // Exact match gets highest score
+      if (selectorLower === targetLower) {
+        score = 1000;
+      }
+      // Contains the full target
+      else if (selectorLower.includes(targetLower) || targetLower.includes(selectorLower)) {
+        score = 100;
+      }
+      // Extract meaningful parts from target
+      else {
+        const parts = target.match(/[a-zA-Z0-9_-]+/g) || [];
+
+        // Score based on how many parts match
+        for (const part of parts) {
+          if (part.length > 2 && selectorLower.includes(part.toLowerCase())) {
+            score += 10 * part.length;
+          }
+        }
+
+        // Use Levenshtein distance for similar strings
+        if (selector.length < 50 && target.length < 50) {
+          const similarity = this.calculateSimilarity(target, selector);
+          score += similarity * 50;
+        }
+
+        // Bonus for matching selector types (class, id, etc)
+        if (target.startsWith('.') && selector.startsWith('.')) {
+          score += 5;
+        } else if (target.startsWith('#') && selector.startsWith('#')) {
+          score += 5;
+        }
+      }
+
+      return { selector, score };
+    });
+
+    // Sort by score descending
+    scoredSelectors.sort((a, b) => b.score - a.score);
+
+    return scoredSelectors.map((item) => item.selector);
   }
 
   private calculateSimilarity(str1: string, str2: string): number {
@@ -498,14 +487,29 @@ export class CodingAgentReporter implements Reporter {
             errorMsg.includes('<element(s) not found>');
 
           if (isElementNotFound) {
-            console.log('        🎯 Available Selectors (first 50):');
-            const selectorsToShow = failure.pageState.availableSelectors.slice(0, 50);
-            selectorsToShow.forEach((selector) => {
+            // Extract the failed selector from error message
+            const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+            const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
+
+            let selectorsToShow = failure.pageState.availableSelectors;
+
+            // Sort by similarity if we know what selector failed
+            if (failedSelector) {
+              const sortedSelectors = this.sortSelectorsBySimilarity(
+                failedSelector,
+                failure.pageState.availableSelectors
+              );
+              selectorsToShow = sortedSelectors;
+            }
+
+            console.log('        🎯 Available Selectors (sorted by relevance):');
+            const limitedSelectors = selectorsToShow.slice(0, MAX_SELECTORS_TO_SHOW);
+            limitedSelectors.forEach((selector) => {
               console.log(`          ${selector}`);
             });
-            if (failure.pageState.availableSelectors.length > 50) {
+            if (selectorsToShow.length > MAX_SELECTORS_TO_SHOW) {
               console.log(
-                `          ... and ${failure.pageState.availableSelectors.length - 50} more`
+                `          ... and ${selectorsToShow.length - MAX_SELECTORS_TO_SHOW} more`
               );
             }
             console.log('');
@@ -514,20 +518,15 @@ export class CodingAgentReporter implements Reporter {
 
         // Show visible text (truncated for console)
         if (failure.pageState.visibleText) {
-          console.log('        📄 Visible Text (first 500 chars):');
+          console.log(`        📄 Visible Text (first ${MAX_VISIBLE_TEXT_LENGTH} chars):`);
           const truncatedText =
-            failure.pageState.visibleText.length > 500
-              ? failure.pageState.visibleText.substring(0, 500) + '...'
+            failure.pageState.visibleText.length > MAX_VISIBLE_TEXT_LENGTH
+              ? failure.pageState.visibleText.substring(0, MAX_VISIBLE_TEXT_LENGTH) + '...'
               : failure.pageState.visibleText;
           console.log(`          ${truncatedText}`);
           console.log('');
         }
       }
-
-      // Show reproduction command
-      console.log('      Reproduction Command:');
-      console.log(`        npx playwright test "${failure.testFile}" -g "${failure.testTitle}"`);
-      console.log('');
 
       // Show link to detailed report
       const reportPath = this.options.singleReportFile
@@ -573,9 +572,7 @@ export class CodingAgentReporter implements Reporter {
           console.log(`          | ${' '.repeat(indent)}^`);
         }
       }
-    } catch (e) {
-      // Ignore if we can't read the file
-    }
+    } catch (e) {}
   }
 
   private async generateMarkdownReports(): Promise<void> {
@@ -612,13 +609,6 @@ export class CodingAgentReporter implements Reporter {
     }
     report += '\n```\n\n';
 
-    if (failure.error.stack) {
-      report += `## Stack Trace\n`;
-      report += '```\n';
-      report += failure.error.stack;
-      report += '\n```\n\n';
-    }
-
     if (failure.pageUrl) {
       report += `## Page URL\n`;
       report += `${failure.pageUrl}\n\n`;
@@ -638,13 +628,6 @@ export class CodingAgentReporter implements Reporter {
         report += `- ${error}\n`;
       }
       report += '\n';
-    }
-
-    if (failure.accessibilityTree) {
-      report += `## Accessibility Tree\n`;
-      report += '```\n';
-      report += failure.accessibilityTree;
-      report += '\n```\n\n';
     }
 
     if (failure.stdout.length > 0) {
@@ -673,11 +656,6 @@ export class CodingAgentReporter implements Reporter {
       report += `## Screenshot\n`;
       report += `![Screenshot](screenshots/${screenshotName})\n\n`;
     }
-
-    report += `## Reproduction Command\n`;
-    report += '```bash\n';
-    report += `npx playwright test "${failure.testFile}" -g "${failure.testTitle}"\n`;
-    report += '```\n';
 
     await fs.promises.writeFile(filePath, report, 'utf-8');
   }
@@ -731,32 +709,6 @@ export class CodingAgentReporter implements Reporter {
         report += '\n```\n</details>\n\n';
       }
 
-      if (failure.error.stack) {
-        report += `<details>\n<summary>Stack Trace</summary>\n\n`;
-        report += '```\n';
-        // Extract full stack trace, cleaning ANSI codes
-        const cleanStack = this.stripAnsiCodes(failure.error.stack);
-        const stackLines = cleanStack.split('\n');
-
-        // Find where the actual stack starts (after error message)
-        let stackStartIndex = 0;
-        for (let i = 0; i < stackLines.length; i++) {
-          if (stackLines[i].trim().startsWith('at ')) {
-            stackStartIndex = i;
-            break;
-          }
-        }
-
-        // Include all stack frames
-        const stackFrames =
-          stackStartIndex > 0
-            ? stackLines.slice(stackStartIndex).filter((line) => line.trim().length > 0)
-            : [stackLines.find((line) => line.includes('at ')) || 'Stack trace not available'];
-
-        report += stackFrames.join('\n');
-        report += '\n```\n</details>\n\n';
-      }
-
       if (failure.pageState && this.options.capturePageState) {
         report += `### 🔍 Page State When Failed\n\n`;
 
@@ -780,41 +732,65 @@ export class CodingAgentReporter implements Reporter {
           failure.pageState.availableSelectors &&
           failure.pageState.availableSelectors.length > 0
         ) {
+          // Extract the failed selector from error message if available
+          const errorMsg = failure.error.message || '';
+          const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+          const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
+
+          let selectorsToDisplay = failure.pageState.availableSelectors;
+
+          // Sort by similarity if we know what selector failed
+          if (failedSelector && errorMsg.includes('not found')) {
+            selectorsToDisplay = this.sortSelectorsBySimilarity(
+              failedSelector,
+              failure.pageState.availableSelectors
+            );
+          }
+
           report += `<details>\n<summary>🎯 Available Selectors on Page (${failure.pageState.availableSelectors.length} found)</summary>\n\n`;
+
+          if (failedSelector && errorMsg.includes('not found')) {
+            report += `Looking for: **${failedSelector}**\n\n`;
+            const topSimilar = selectorsToDisplay.slice(0, MAX_SIMILAR_SUGGESTIONS);
+            if (topSimilar.length > 0) {
+              report += '**💡 Most similar selectors:**\n```\n';
+              topSimilar.forEach((s) => (report += `${s}\n`));
+              report += '```\n\n';
+            }
+          }
+
           report += 'These selectors were actually present on the page:\n\n';
           report += '```\n';
 
           // Group selectors by type
-          const buttons = failure.pageState.availableSelectors.filter((s) => s.includes('button'));
-          const links = failure.pageState.availableSelectors.filter(
-            (s) => s.includes('a:') || s.includes('href')
-          );
-          const inputs = failure.pageState.availableSelectors.filter(
+          const buttons = selectorsToDisplay.filter((s) => s.includes('button'));
+          const links = selectorsToDisplay.filter((s) => s.includes('a:') || s.includes('href'));
+          const inputs = selectorsToDisplay.filter(
             (s) => s.includes('input') || s.includes('[name=') || s.includes('[placeholder=')
           );
-          const ids = failure.pageState.availableSelectors.filter((s) => s.startsWith('#'));
-          const others = failure.pageState.availableSelectors.filter(
+          const ids = selectorsToDisplay.filter((s) => s.startsWith('#'));
+          const others = selectorsToDisplay.filter(
             (s) =>
               !buttons.includes(s) && !links.includes(s) && !inputs.includes(s) && !ids.includes(s)
           );
 
           if (buttons.length > 0) {
             report += '# Buttons:\n';
-            for (const btn of buttons.slice(0, 10)) {
+            for (const btn of buttons.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
               report += `  ${btn}\n`;
             }
           }
 
           if (links.length > 0) {
             report += '\n# Links:\n';
-            for (const link of links.slice(0, 10)) {
+            for (const link of links.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
               report += `  ${link}\n`;
             }
           }
 
           if (inputs.length > 0) {
             report += '\n# Inputs:\n';
-            for (const input of inputs.slice(0, 10)) {
+            for (const input of inputs.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
               report += `  ${input}\n`;
             }
           }
@@ -828,7 +804,7 @@ export class CodingAgentReporter implements Reporter {
 
           if (others.length > 0) {
             report += '\n# Other Elements:\n';
-            for (const other of others.slice(0, 10)) {
+            for (const other of others.slice(0, MAX_SELECTORS_PER_CATEGORY)) {
               report += `  ${other}\n`;
             }
           }
@@ -848,8 +824,8 @@ export class CodingAgentReporter implements Reporter {
         if (failure.pageState.htmlSnippet) {
           report += `<details>\n<summary>🔧 HTML Context</summary>\n\n`;
           report += '```html\n';
-          report += failure.pageState.htmlSnippet.substring(0, 2000);
-          if (failure.pageState.htmlSnippet.length > 2000) {
+          report += failure.pageState.htmlSnippet.substring(0, MAX_HTML_SNIPPET_LENGTH);
+          if (failure.pageState.htmlSnippet.length > MAX_HTML_SNIPPET_LENGTH) {
             report += '\n... (truncated)';
           }
           report += '\n```\n</details>\n\n';
@@ -872,13 +848,6 @@ export class CodingAgentReporter implements Reporter {
           report += `${error}\n`;
         }
         report += '```\n\n';
-      }
-
-      if (failure.accessibilityTree) {
-        report += `<details>\n<summary>Accessibility Tree</summary>\n\n`;
-        report += '```\n';
-        report += failure.accessibilityTree;
-        report += '\n```\n</details>\n\n';
       }
 
       if (failure.stdout.length > 0) {
@@ -904,21 +873,8 @@ export class CodingAgentReporter implements Reporter {
         report += `![Screenshot](./${screenshotName})\n\n`;
       }
 
-      report += `### Reproduction Command\n`;
-      report += '```bash\n';
-      report += `npx playwright test "${failure.testFile}" -g "${failure.testTitle}"\n`;
-      report += '```\n\n';
-
       report += `---\n\n`;
     }
-
-    report += `## Quick Fix Commands\n\n`;
-    report += '```bash\n';
-    report += '# Run all failed tests\n';
-    for (const failure of this.failures) {
-      report += `npx playwright test "${failure.testFile}" -g "${failure.testTitle}"\n`;
-    }
-    report += '```\n';
 
     await fs.promises.writeFile(reportPath, report, 'utf-8');
   }
@@ -1001,34 +957,6 @@ export class CodingAgentReporter implements Reporter {
       report += '\n```\n\n';
     }
 
-    // Add full stack trace
-    if (failure.error.stack) {
-      report += `## Stack Trace\n`;
-      report += '```\n';
-      const cleanStack = this.stripAnsiCodes(failure.error.stack);
-      const stackLines = cleanStack.split('\n');
-
-      // Find where the actual stack starts (after error message)
-      let stackStartIndex = 0;
-      for (let i = 0; i < stackLines.length; i++) {
-        if (stackLines[i].trim().startsWith('at ')) {
-          stackStartIndex = i;
-          break;
-        }
-      }
-
-      // Include all stack frames
-      if (stackStartIndex > 0) {
-        const stackFrames = stackLines
-          .slice(stackStartIndex)
-          .filter((line) => line.trim().length > 0);
-        report += stackFrames.join('\n');
-      } else {
-        report += cleanStack;
-      }
-      report += '\n```\n\n';
-    }
-
     if (failure.pageState) {
       report += `## Page State\n`;
       report += `**URL:** ${failure.pageState.url || failure.pageUrl || 'unknown'}\n`;
@@ -1042,6 +970,7 @@ export class CodingAgentReporter implements Reporter {
 
       if (failure.pageState.visibleText) {
         report += `### Visible Text\n`;
+        // Visible text is already condensed from the test fixture
         report += failure.pageState.visibleText;
         report += '\n\n';
       }
@@ -1054,8 +983,8 @@ export class CodingAgentReporter implements Reporter {
 
       if (failure.pageState.htmlSnippet) {
         report += `### HTML Context\n`;
-        report += failure.pageState.htmlSnippet.substring(0, 2000);
-        if (failure.pageState.htmlSnippet.length > 2000) {
+        report += failure.pageState.htmlSnippet.substring(0, MAX_HTML_SNIPPET_LENGTH);
+        if (failure.pageState.htmlSnippet.length > MAX_HTML_SNIPPET_LENGTH) {
           report += '\n... (truncated)';
         }
         report += '\n';

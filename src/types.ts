@@ -3,7 +3,6 @@ import type { TestCase, TestResult, TestError } from '@playwright/test/reporter'
 export interface CodingAgentReporterOptions {
   outputDir?: string;
   includeScreenshots?: boolean;
-  includeAccessibilityTree?: boolean;
   includeConsoleErrors?: boolean;
   includeNetworkErrors?: boolean;
   includeVideo?: boolean;
@@ -35,7 +34,6 @@ export interface FailureContext {
   error: TestError;
   stdout: string[];
   stderr: string[];
-  accessibilityTree?: string;
   consoleErrors?: string[];
   networkErrors?: string[];
   pageUrl?: string;
