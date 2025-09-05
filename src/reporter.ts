@@ -433,36 +433,104 @@ export class CodingAgentReporter implements Reporter {
 
       const testPath = `${fileName}:${errorLineNumber}:7`;
       const testIndex = failure.testIndex || index + 1;
+      const duration = failure.duration ? ` (${failure.duration}ms)` : '';
+      const fullTestName = failure.suiteName
+        ? `${failure.suiteName} › ${failure.testTitle}`
+        : failure.testTitle;
 
       console.log(
-        `  ${testIndex}) ${testPath} › ${failure.testTitle} ${'─'.repeat(Math.max(0, 80 - testPath.length - failure.testTitle.length))}`
+        `  ${testIndex}) ${testPath} › ${fullTestName}${duration} ${'─'.repeat(Math.max(0, 60 - testPath.length - fullTestName.length))}`
       );
 
-      // Show error snippet in console for better debugging
-      if (failure.error.snippet && this.options.verboseErrors) {
+      // Show detailed error information (same as markdown report)
+      console.log('');
+      console.log('      Error:');
+      const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
+      const cleanMessage = this.stripAnsiCodes(errorMessage);
+      const errorLines = cleanMessage.split('\n');
+      errorLines.forEach((line) => {
+        console.log(`        ${line}`);
+      });
+      console.log('');
+
+      // Show error location code snippet
+      if (failure.error.snippet) {
+        console.log('      Error Location:');
         const cleanSnippet = this.stripAnsiCodes(failure.error.snippet);
-        console.log('');
-        // Indent each line
-        const indentedSnippet = cleanSnippet
-          .split('\n')
-          .map((line) => '    ' + line)
-          .join('\n');
-        console.log(indentedSnippet);
+        const snippetLines = cleanSnippet.split('\n');
+        snippetLines.forEach((line) => {
+          console.log(`        ${line}`);
+        });
         console.log('');
       }
+
+      // Show page state information
+      if (failure.pageState && this.options.capturePageState) {
+        console.log('      🔍 Page State When Failed:');
+
+        if (failure.pageState.url || failure.pageUrl) {
+          console.log(`        URL: ${failure.pageState.url || failure.pageUrl}`);
+        }
+        if (failure.pageState.title) {
+          console.log(`        Title: ${failure.pageState.title}`);
+        }
+        console.log('');
+
+        // Show recent actions
+        if (failure.pageState.actionHistory && failure.pageState.actionHistory.length > 0) {
+          console.log('        📜 Recent Actions:');
+          const recentActions = failure.pageState.actionHistory.slice(-3);
+          recentActions.forEach((action) => {
+            console.log(`          ${action}`);
+          });
+          console.log('');
+        }
+
+        // Show available selectors (limited for console)
+        if (
+          failure.pageState.availableSelectors &&
+          failure.pageState.availableSelectors.length > 0
+        ) {
+          const errorMsg = failure.error.message || '';
+          const isElementNotFound =
+            errorMsg.includes('not found') ||
+            errorMsg.includes('no element') ||
+            errorMsg.includes('<element(s) not found>');
+
+          if (isElementNotFound) {
+            console.log('        🎯 Available Selectors (first 50):');
+            const selectorsToShow = failure.pageState.availableSelectors.slice(0, 50);
+            selectorsToShow.forEach((selector) => {
+              console.log(`          ${selector}`);
+            });
+            if (failure.pageState.availableSelectors.length > 50) {
+              console.log(
+                `          ... and ${failure.pageState.availableSelectors.length - 50} more`
+              );
+            }
+            console.log('');
+          }
+        }
+      }
+
+      // Show reproduction command
+      console.log('      Reproduction Command:');
+      console.log(`        npx playwright test "${failure.testFile}" -g "${failure.testTitle}"`);
+      console.log('');
 
       // Show link to detailed report
       const reportPath = this.options.singleReportFile
         ? path.join(this.outputDir, 'error-context.md')
         : path.join(this.outputDir, `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.md`);
-      console.log(`    Error Context: ${reportPath}`);
+      console.log(`      📝 Full Error Context: ${reportPath}`);
+      console.log('');
     });
 
     if (shouldTruncate && this.failures.length > this.options.maxInlineErrors) {
       const remaining = this.failures.length - this.options.maxInlineErrors;
       const reportPath = path.join(this.outputDir, 'error-context.md');
       console.log(
-        `  ... and ${remaining} more failure${remaining > 1 ? 's' : ''}. See ${reportPath} for details.\n`
+        `  ... and ${remaining} more failure${remaining > 1 ? 's' : ''}. See ${reportPath} for complete details.\n`
       );
     }
   }
