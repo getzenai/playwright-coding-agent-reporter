@@ -28,7 +28,6 @@ export class PageStateCapture {
       return await Promise.race([capturePromise, timeoutPromise]);
     } catch (error) {
       // Return partial data if capture fails or times out
-      console.error('Error in capturePageState:', error);
       return {
         url: page.url(),
         title: 'Error capturing page state',
@@ -69,7 +68,6 @@ export class PageStateCapture {
 
   private static async getVisibleText(page: Page): Promise<string> {
     try {
-      console.log('Getting visible text from page...');
       // Add timeout for evaluate (2 seconds)
       const texts = await page.evaluate(() => {
         // Simple text extraction
@@ -80,14 +78,12 @@ export class PageStateCapture {
 
       return texts.substring(0, MAX_VISIBLE_TEXT_LENGTH);
     } catch (e) {
-      console.log('Error getting visible text:', e);
       return '';
     }
   }
 
   private static async getAvailableSelectors(page: Page): Promise<string[]> {
     try {
-      console.log('Getting available selectors...');
       // Add timeout for evaluate (2 seconds)
       const selectors = await page.evaluate(() => {
         const elements: string[] = [];
@@ -252,10 +248,8 @@ export class PageStateCapture {
         return [...new Set(elements)].slice(0, 50);
       });
 
-      console.log('Found selectors:', selectors.length);
       return selectors;
     } catch (e) {
-      console.log('Error getting selectors:', e);
       return [];
     }
   }

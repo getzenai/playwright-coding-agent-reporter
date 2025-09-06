@@ -89,13 +89,8 @@ export const test = base.extend<{
         try {
           await page.waitForLoadState('domcontentloaded');
           lastPageState = await PageStateCapture.capturePageState(page);
-          console.log('Captured page state after navigation:', {
-            url: lastPageState.url,
-            selectorsCount: lastPageState.availableSelectors.length,
-            visibleTextLength: lastPageState.visibleText.length,
-          });
         } catch (e) {
-          console.log('Failed to capture page state after navigation:', e);
+          // Silently continue if page state capture fails
         }
         return result;
       };
@@ -132,18 +127,11 @@ export const test = base.extend<{
 
       if (testInfo.status === 'failed' || testInfo.status === 'timedOut') {
         try {
-          console.log('Test failed, using captured page state...');
           // Use the last captured page state if available, otherwise try to capture now
           let pageState = lastPageState;
           if (!pageState || pageState.availableSelectors.length === 0) {
-            console.log('Attempting to capture page state now...');
             pageState = await PageStateCapture.capturePageState(page);
           }
-          console.log('Using page state:', {
-            url: pageState.url,
-            selectorsCount: pageState.availableSelectors.length,
-            visibleTextLength: pageState.visibleText.length,
-          });
 
           const errorContextReport = `# Error Context: ${testInfo.title}
 
@@ -232,7 +220,7 @@ ${pageState.htmlSnippet ? pageState.htmlSnippet.substring(0, MAX_HTML_CONTEXT) :
             });
           }
         } catch (error) {
-          console.error('Failed to capture page state:', error);
+          // Failed to capture page state
         }
       }
     },
