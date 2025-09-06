@@ -12,8 +12,12 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "playwright test",
-    "test:example": "playwright test --config=test/playwright.config.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest watch",
+    "test:unit:ui": "vitest --ui",
+    "test:e2e": "playwright test --config=test/e2e/playwright.config.ts",
+    "test:example": "playwright test --config=test/e2e/playwright.config.ts",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
     "prepublishOnly": "npm run build"
@@ -48,10 +52,12 @@
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/release-notes-generator": "^14.0.3",
     "@types/node": "^24.3.1",
+    "@vitest/ui": "^3.2.4",
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "semantic-release": "^24.2.7",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.40.0"

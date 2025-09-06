@@ -354,7 +354,7 @@ export class MarkdownFormatter extends ErrorFormatter {
         ? message.substring(0, this.options.maxErrorLength) + '\n... (truncated)'
         : message;
 
-    return `### Error\n\`\`\`\n${truncated}\n\`\`\`\n`;
+    return `### Error\n${truncated}\n`;
   }
 
   formatCodeSnippet(snippet: string): string {
@@ -550,6 +550,6 @@ export class MarkdownFormatter extends ErrorFormatter {
   formatScreenshot(path?: string): string {
     if (!path) return '';
     const emoji = this.includeEmoji ? '📸 ' : '';
-    return `### ${emoji}Screenshot\n![Screenshot](./${path})\n\nView in test folder: [${path}](./${path})\n`;
+    return `### ${emoji}Screenshot\n![Screenshot](./${path})\n`;
   }
 }

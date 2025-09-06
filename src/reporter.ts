@@ -66,14 +66,13 @@ export class CodingAgentReporter implements Reporter {
 
   constructor(options: CodingAgentReporterOptions = {}) {
     this.options = {
-      outputDir: options.outputDir || 'test-results',
+      outputDir: options.outputDir || 'test-report-for-coding-agents',
       includeScreenshots: options.includeScreenshots ?? true,
       includeConsoleErrors: options.includeConsoleErrors ?? true,
       includeNetworkErrors: options.includeNetworkErrors ?? true,
       includeVideo: options.includeVideo ?? false,
       silent: options.silent ?? false,
       maxErrorLength: options.maxErrorLength ?? 5000,
-      outputFormat: options.outputFormat || 'markdown',
       singleReportFile: options.singleReportFile ?? true,
       verboseErrors: options.verboseErrors ?? true,
       maxInlineErrors: options.maxInlineErrors ?? 5,
@@ -82,7 +81,7 @@ export class CodingAgentReporter implements Reporter {
     };
 
     this.outputDir = path.resolve(process.cwd(), this.options.outputDir);
-    this.reportsDir = path.join(this.outputDir, 'coding-agent-reports');
+    this.reportsDir = this.outputDir;
 
     this.testSummary = {
       total: 0,
@@ -488,9 +487,7 @@ export class CodingAgentReporter implements Reporter {
   async onEnd(result: FullResult): Promise<void> {
     this.testSummary.duration = Date.now() - this.startTime;
 
-    if (this.options.outputFormat === 'markdown') {
-      await this.generateMarkdownReports();
-    }
+    await this.generateMarkdownReports();
 
     if (!this.options.silent && this.failures.length > 0) {
       console.log('');
