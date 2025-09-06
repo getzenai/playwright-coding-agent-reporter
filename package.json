@@ -1,6 +1,6 @@
 {
   "name": "@zenai/playwright-coding-agent-reporter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A coding agent friendly reporter for playwright, so that your coding agent finally really understands what is going wrong",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

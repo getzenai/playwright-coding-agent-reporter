@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.0.0...v1.1.0) (2025-09-06)
+
+
+### Features
+
+* enhance reporter with page state capture, improved test structure, and better error context ([#6](https://github.com/getzenai/playwright-coding-agent-reporter/issues/6)) ([104d198](https://github.com/getzenai/playwright-coding-agent-reporter/commit/104d198de6b0c4bd964d170e5508faf4f8bb4634)), closes [#4](https://github.com/getzenai/playwright-coding-agent-reporter/issues/4)
+
 # 1.0.0 (2025-09-05)
 
 
