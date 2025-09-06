@@ -137,9 +137,7 @@ export abstract class ErrorFormatter {
       networkErrors: failure.networkErrors,
       stdout: failure.stdout,
       stderr: failure.stderr,
-      screenshotPath: failure.screenshot
-        ? `failure-${testIndex}-${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.png`
-        : undefined,
+      screenshotPath: failure.screenshot ? 'screenshot.png' : undefined,
     };
   }
 
