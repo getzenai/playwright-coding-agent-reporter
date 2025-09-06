@@ -26,6 +26,7 @@ export class CodingAgentReporter implements Reporter {
   private testSummary: TestSummary;
   private startTime: number = 0;
   private outputDir: string;
+  private reportsDir: string;
   private testCounter: number = 0;
   private totalTests: number = 0;
   private workers: number = 1;
@@ -65,14 +66,13 @@ export class CodingAgentReporter implements Reporter {
 
   constructor(options: CodingAgentReporterOptions = {}) {
     this.options = {
-      outputDir: options.outputDir || 'test-results',
+      outputDir: options.outputDir || 'test-report-for-coding-agents',
       includeScreenshots: options.includeScreenshots ?? true,
       includeConsoleErrors: options.includeConsoleErrors ?? true,
       includeNetworkErrors: options.includeNetworkErrors ?? true,
       includeVideo: options.includeVideo ?? false,
       silent: options.silent ?? false,
       maxErrorLength: options.maxErrorLength ?? 5000,
-      outputFormat: options.outputFormat || 'markdown',
       singleReportFile: options.singleReportFile ?? true,
       verboseErrors: options.verboseErrors ?? true,
       maxInlineErrors: options.maxInlineErrors ?? 5,
@@ -81,6 +81,7 @@ export class CodingAgentReporter implements Reporter {
     };
 
     this.outputDir = path.resolve(process.cwd(), this.options.outputDir);
+    this.reportsDir = this.outputDir;
 
     this.testSummary = {
       total: 0,
@@ -137,35 +138,10 @@ export class CodingAgentReporter implements Reporter {
       if (fs.existsSync(this.outputDir)) {
         if (this.isSafeToRemove(this.outputDir)) {
           try {
-            // Only remove files we own to avoid wiping unrelated artifacts when overlapping with Playwright output
-            // Remove consolidated report and reporter-created assets from previous runs
-            const candidates = [path.join(this.outputDir, 'error-context.md')];
-            for (const file of candidates) {
+            // Only remove our coding-agent-reports directory
+            if (fs.existsSync(this.reportsDir)) {
               try {
-                if (fs.existsSync(file)) fs.rmSync(file, { force: true });
-              } catch {}
-            }
-            // Remove reporter-created screenshots at root and under ./screenshots
-            try {
-              const files = fs.readdirSync(this.outputDir);
-              for (const f of files) {
-                if (/^failure-\d+-.*\.png$/i.test(f)) {
-                  try {
-                    fs.rmSync(path.join(this.outputDir, f), { force: true });
-                  } catch {}
-                }
-              }
-            } catch {}
-            const screenshotsDir = path.join(this.outputDir, 'screenshots');
-            if (fs.existsSync(screenshotsDir)) {
-              try {
-                fs.rmSync(screenshotsDir, { recursive: true, force: true });
-              } catch {}
-            }
-            const tracesDir = path.join(this.outputDir, 'traces');
-            if (fs.existsSync(tracesDir)) {
-              try {
-                fs.rmSync(tracesDir, { recursive: true, force: true });
+                fs.rmSync(this.reportsDir, { recursive: true, force: true });
               } catch {}
             }
           } catch {}
@@ -265,19 +241,50 @@ export class CodingAgentReporter implements Reporter {
   }
 
   private extractPageContext(result: TestResult, failure: FailureContext): void {
+    // Extract attachments first
     for (const attachment of result.attachments) {
-      if (attachment.name === 'screenshot' && this.options.includeScreenshots) {
-        failure.screenshot = attachment.body;
+      // Handle screenshots - Playwright may use different names
+      if (
+        (attachment.name === 'screenshot' || attachment.name.includes('screenshot')) &&
+        this.options.includeScreenshots
+      ) {
+        // If there's a path, read the file; otherwise use the body
+        if (attachment.path && fs.existsSync(attachment.path)) {
+          failure.screenshot = fs.readFileSync(attachment.path);
+        } else if (attachment.body) {
+          failure.screenshot = attachment.body;
+        }
       } else if (attachment.name === 'page-url') {
         failure.pageUrl = attachment.body?.toString('utf-8');
+      } else if (attachment.name === 'console-errors' && attachment.body) {
+        try {
+          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          if (Array.isArray(errors)) {
+            failure.consoleErrors = errors;
+          }
+        } catch {}
+      } else if (attachment.name === 'network-errors' && attachment.body) {
+        try {
+          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          if (Array.isArray(errors)) {
+            failure.networkErrors = errors;
+          }
+        } catch {}
       }
     }
 
-    if (this.options.includeConsoleErrors) {
+    // Fallback to extracting from stdout/stderr if not in attachments
+    if (
+      this.options.includeConsoleErrors &&
+      (!failure.consoleErrors || failure.consoleErrors.length === 0)
+    ) {
       failure.consoleErrors = this.extractConsoleErrors(result);
     }
 
-    if (this.options.includeNetworkErrors) {
+    if (
+      this.options.includeNetworkErrors &&
+      (!failure.networkErrors || failure.networkErrors.length === 0)
+    ) {
       failure.networkErrors = this.extractNetworkErrors(result);
     }
   }
@@ -480,10 +487,7 @@ export class CodingAgentReporter implements Reporter {
   async onEnd(result: FullResult): Promise<void> {
     this.testSummary.duration = Date.now() - this.startTime;
 
-    if (this.options.outputFormat === 'markdown') {
-      await this.generateMarkdownReports();
-      await this.writeIndividualTestReports();
-    }
+    await this.generateMarkdownReports();
 
     if (!this.options.silent && this.failures.length > 0) {
       console.log('');
@@ -502,10 +506,8 @@ export class CodingAgentReporter implements Reporter {
         console.log(`  ${this.testSummary.total} total`);
         console.log(`  Finished in ${(this.testSummary.duration / 1000).toFixed(1)}s`);
 
-        if (this.options.singleReportFile) {
-          const reportPath = path.join(this.outputDir, 'error-context.md');
-          console.log(`\n  📝 Detailed error report: ${reportPath}`);
-        }
+        const reportPath = path.join(this.reportsDir, 'all-failures.md');
+        console.log(`\n  📝 Detailed error report: ${reportPath}`);
       } else {
         console.log(`\n  ${passed} passed (${(this.testSummary.duration / 1000).toFixed(1)}s)`);
       }
@@ -540,16 +542,15 @@ export class CodingAgentReporter implements Reporter {
       console.log(formattedOutput);
 
       // Show link to detailed report
-      const reportPath = this.options.singleReportFile
-        ? path.join(this.outputDir, 'error-context.md')
-        : path.join(this.outputDir, `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.md`);
+      const testFolder = this.generateTestFolderName(failure);
+      const reportPath = path.join(this.reportsDir, testFolder, 'report.md');
       console.log(`\n  📝 **Full Error Context:** ${reportPath}`);
       console.log('');
     });
 
     if (shouldTruncate && this.failures.length > this.options.maxInlineErrors) {
       const remaining = this.failures.length - this.options.maxInlineErrors;
-      const reportPath = path.join(this.outputDir, 'error-context.md');
+      const reportPath = path.join(this.reportsDir, 'all-failures.md');
       console.log(
         `  ... and ${remaining} more failure${remaining > 1 ? 's' : ''}. See ${reportPath} for complete details.\n`
       );
@@ -591,88 +592,45 @@ export class CodingAgentReporter implements Reporter {
       return;
     }
 
-    if (this.options.singleReportFile) {
-      await this.generateSingleErrorContextReport();
-    } else {
-      for (const failure of this.failures) {
-        await this.generateFailureReport(failure);
-      }
-      await this.generateSummaryReport();
+    // Create our reports directory
+    if (!fs.existsSync(this.reportsDir)) {
+      fs.mkdirSync(this.reportsDir, { recursive: true });
     }
+
+    // Generate consolidated report (all-failures.md)
+    await this.generateConsolidatedReport();
+
+    // Generate individual test reports in their own folders
+    await this.generateIndividualReports();
   }
 
-  private async generateFailureReport(failure: FailureContext): Promise<void> {
-    const fileName = `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.md`;
-    const filePath = path.join(this.outputDir, fileName);
+  private generateTestFolderName(failure: FailureContext): string {
+    const parts = [];
 
-    let report = `# Test Failure: ${failure.testTitle}\n\n`;
-    report += `## Test Location\n`;
-    report += `- **File**: ${failure.testFile}:${failure.lineNumber || 'unknown'}\n`;
-    report += `- **Duration**: ${failure.duration}ms\n`;
-    report += `- **Retries**: ${failure.retries}\n\n`;
-
-    report += `## Error Details\n`;
-    report += '```\n';
-    const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
-    report += errorMessage.substring(0, this.options.maxErrorLength);
-    if (errorMessage.length > this.options.maxErrorLength) {
-      report += '\n... (truncated)';
-    }
-    report += '\n```\n\n';
-
-    if (failure.pageUrl) {
-      report += `## Page URL\n`;
-      report += `${failure.pageUrl}\n\n`;
+    // Add suite name if present
+    if (failure.suiteName) {
+      parts.push(failure.suiteName);
     }
 
-    if (failure.consoleErrors && failure.consoleErrors.length > 0) {
-      report += `## Console Errors\n`;
-      for (const error of failure.consoleErrors) {
-        report += `- ${error}\n`;
-      }
-      report += '\n';
-    }
+    // Add test title
+    parts.push(failure.testTitle);
 
-    if (failure.networkErrors && failure.networkErrors.length > 0) {
-      report += `## Network Errors\n`;
-      for (const error of failure.networkErrors) {
-        report += `- ${error}\n`;
-      }
-      report += '\n';
-    }
+    // Create base name
+    const baseName = parts
+      .join('-')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 80); // Leave room for index
 
-    if (failure.stdout.length > 0) {
-      report += `## Test Output (stdout)\n`;
-      report += '```\n';
-      report += failure.stdout.join('\n');
-      report += '\n```\n\n';
-    }
+    // Add test index for uniqueness (testIndex is set when test is captured)
+    const uniqueName = `${baseName}-${failure.testIndex || Date.now()}`;
 
-    if (failure.stderr.length > 0) {
-      report += `## Test Errors (stderr)\n`;
-      report += '```\n';
-      report += failure.stderr.join('\n');
-      report += '\n```\n\n';
-    }
-
-    if (failure.screenshot) {
-      const screenshotDir = path.join(this.outputDir, 'screenshots');
-      if (!fs.existsSync(screenshotDir)) {
-        fs.mkdirSync(screenshotDir, { recursive: true });
-      }
-      const screenshotName = `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.png`;
-      const screenshotPath = path.join(screenshotDir, screenshotName);
-      fs.writeFileSync(screenshotPath, failure.screenshot);
-
-      report += `## Screenshot\n`;
-      report += `![Screenshot](screenshots/${screenshotName})\n\n`;
-    }
-
-    await fs.promises.writeFile(filePath, report, 'utf-8');
+    return uniqueName;
   }
 
-  private async generateSingleErrorContextReport(): Promise<void> {
-    const reportPath = path.join(this.outputDir, 'error-context.md');
+  private async generateConsolidatedReport(): Promise<void> {
+    const reportPath = path.join(this.reportsDir, 'all-failures.md');
 
     let report = `# Test Error Context Report\n\n`;
     report += `## Summary\n`;
@@ -686,6 +644,62 @@ export class CodingAgentReporter implements Reporter {
       report += `No failures to report! 🎉\n`;
       await fs.promises.writeFile(reportPath, report, 'utf-8');
       return;
+    }
+
+    // Add quick navigation to individual test reports
+    report += `## Failed Tests Quick Links\n\n`;
+
+    // Group failures by type
+    const timeoutFailures = this.failures.filter(
+      (f) => f.error.message?.includes('Timeout') || f.error.message?.includes('exceeded')
+    );
+    const assertionFailures = this.failures.filter(
+      (f) => f.error.message?.includes('expect') || f.error.message?.includes('assertion')
+    );
+    const elementNotFoundFailures = this.failures.filter(
+      (f) => f.error.message?.includes('not found') || f.error.message?.includes('no element')
+    );
+    const otherFailures = this.failures.filter(
+      (f) =>
+        !timeoutFailures.includes(f) &&
+        !assertionFailures.includes(f) &&
+        !elementNotFoundFailures.includes(f)
+    );
+
+    if (timeoutFailures.length > 0) {
+      report += `### ⏱️ Timeout Failures (${timeoutFailures.length})\n`;
+      for (const failure of timeoutFailures) {
+        const testFolder = this.generateTestFolderName(failure);
+        report += `- [${failure.testTitle}](./${testFolder}/report.md)\n`;
+      }
+      report += `\n`;
+    }
+
+    if (elementNotFoundFailures.length > 0) {
+      report += `### 🔍 Element Not Found (${elementNotFoundFailures.length})\n`;
+      for (const failure of elementNotFoundFailures) {
+        const testFolder = this.generateTestFolderName(failure);
+        report += `- [${failure.testTitle}](./${testFolder}/report.md)\n`;
+      }
+      report += `\n`;
+    }
+
+    if (assertionFailures.length > 0) {
+      report += `### ✗ Assertion Failures (${assertionFailures.length})\n`;
+      for (const failure of assertionFailures) {
+        const testFolder = this.generateTestFolderName(failure);
+        report += `- [${failure.testTitle}](./${testFolder}/report.md)\n`;
+      }
+      report += `\n`;
+    }
+
+    if (otherFailures.length > 0) {
+      report += `### 🔧 Other Failures (${otherFailures.length})\n`;
+      for (const failure of otherFailures) {
+        const testFolder = this.generateTestFolderName(failure);
+        report += `- [${failure.testTitle}](./${testFolder}/report.md)\n`;
+      }
+      report += `\n`;
     }
 
     report += `---\n\n`;
@@ -707,80 +721,49 @@ export class CodingAgentReporter implements Reporter {
         }
       }
 
-      // Save screenshot if present
-      if (failure.screenshot) {
-        const screenshotName = `failure-${i + 1}-${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.png`;
-        const screenshotPath = path.join(this.outputDir, screenshotName);
-        fs.writeFileSync(screenshotPath, failure.screenshot);
-      }
+      // Screenshots are saved in individual test folders
 
       // Extract error data and format using MarkdownFormatter
       const errorData = this.markdownFormatter.extractErrorData(failure, i + 1);
+
+      // Override screenshot path for consolidated report
+      const testFolderName = this.generateTestFolderName(failure);
+      if (errorData.screenshotPath) {
+        errorData.screenshotPath = `./${testFolderName}/screenshot.png`;
+      }
+
       const formattedOutput = this.markdownFormatter.formatError(errorData);
       report += formattedOutput;
+
+      // Add link to individual test folder
+      report += `\n📁 **Test artifacts folder:** [${testFolderName}](./${testFolderName})\n`;
+
       report += '\n---\n\n';
     }
 
     await fs.promises.writeFile(reportPath, report, 'utf-8');
   }
 
-  private async writeIndividualTestReports(): Promise<void> {
-    // Wait for Playwright to finish writing its files
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  private async generateIndividualReports(): Promise<void> {
+    for (const failure of this.failures) {
+      // Create folder for this test
+      const testFolder = this.generateTestFolderName(failure);
+      const testDir = path.join(this.reportsDir, testFolder);
 
-    // After tests have run, write individual error reports to test result directories
-    if (!fs.existsSync(this.outputDir)) {
-      return;
-    }
-
-    const dirs = await fs.promises.readdir(this.outputDir);
-
-    for (const dir of dirs) {
-      const dirPath = path.join(this.outputDir, dir);
-      const stat = await fs.promises.stat(dirPath);
-
-      if (stat.isDirectory()) {
-        // Check if this directory has an error-context.md file (created by Playwright)
-        const errorContextPath = path.join(dirPath, 'error-context.md');
-        if (fs.existsSync(errorContextPath)) {
-          // Find the corresponding failure for this test directory
-          let matched = false;
-
-          for (const failure of this.failures) {
-            // Create multiple possible patterns to match
-            const testWords = failure.testTitle
-              .toLowerCase()
-              .replace(/[^a-z0-9\s]/g, '')
-              .split(/\s+/)
-              .filter((w) => w.length > 2);
-            const dirLower = dir.toLowerCase();
-
-            // Check if directory name contains key words from test
-            const matchCount = testWords.filter((word) => dirLower.includes(word)).length;
-
-            if (matchCount >= 2 || (matchCount >= 1 && testWords.length <= 2)) {
-              // Generate the individual error report
-              const report = await this.generateIndividualErrorReport(failure);
-
-              // Overwrite the Playwright-generated error-context.md
-              await fs.promises.writeFile(errorContextPath, report, 'utf-8');
-              matched = true;
-              break;
-            }
-          }
-
-          // If no match found but we have failures, use the first failure as fallback
-          if (!matched && this.failures.length > 0) {
-            // Try to match by index - assuming order is preserved
-            const failureIndex = dirs.indexOf(dir);
-            if (failureIndex < this.failures.length) {
-              const failure = this.failures[failureIndex];
-              const report = await this.generateIndividualErrorReport(failure);
-              await fs.promises.writeFile(errorContextPath, report, 'utf-8');
-            }
-          }
-        }
+      if (!fs.existsSync(testDir)) {
+        fs.mkdirSync(testDir, { recursive: true });
       }
+
+      // Save screenshot if present
+      if (failure.screenshot) {
+        const screenshotPath = path.join(testDir, 'screenshot.png');
+        fs.writeFileSync(screenshotPath, failure.screenshot);
+      }
+
+      // Generate the individual error report
+      const report = await this.generateIndividualErrorReport(failure);
+      const reportPath = path.join(testDir, 'report.md');
+      await fs.promises.writeFile(reportPath, report, 'utf-8');
     }
   }
 
@@ -811,39 +794,6 @@ export class CodingAgentReporter implements Reporter {
     }
 
     return report;
-  }
-
-  private async generateSummaryReport(): Promise<void> {
-    const summaryPath = path.join(this.outputDir, 'SUMMARY.md');
-
-    let summary = `# Test Execution Summary\n\n`;
-    summary += `## Statistics\n`;
-    summary += `- **Total Tests**: ${this.testSummary.total}\n`;
-    summary += `- **Passed**: ${this.testSummary.passed} ✅\n`;
-    summary += `- **Failed**: ${this.testSummary.failed} ❌\n`;
-    summary += `- **Skipped**: ${this.testSummary.skipped} ⏭️\n`;
-    summary += `- **Duration**: ${(this.testSummary.duration / 1000).toFixed(2)}s\n\n`;
-
-    if (this.failures.length > 0) {
-      summary += `## Failed Tests\n\n`;
-      for (const failure of this.failures) {
-        const fileName = `${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.md`;
-        summary += `### ❌ ${failure.testTitle}\n`;
-        summary += `- **Location**: ${failure.testFile}:${failure.lineNumber || 'unknown'}\n`;
-        summary += `- **Error**: ${failure.error.message?.split('\n')[0] || 'Unknown error'}\n`;
-        summary += `- **Details**: [View Report](./${fileName})\n\n`;
-      }
-
-      summary += `## Quick Fix Commands\n\n`;
-      summary += '```bash\n';
-      summary += '# Run all failed tests\n';
-      for (const failure of this.failures) {
-        summary += `npx playwright test "${failure.testFile}" -g "${failure.testTitle}"\n`;
-      }
-      summary += '```\n';
-    }
-
-    await fs.promises.writeFile(summaryPath, summary, 'utf-8');
   }
 }
 

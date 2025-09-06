@@ -8,7 +8,6 @@ export interface CodingAgentReporterOptions {
   includeVideo?: boolean;
   silent?: boolean;
   maxErrorLength?: number;
-  outputFormat?: 'markdown';
   singleReportFile?: boolean;
   verboseErrors?: boolean;
   maxInlineErrors?: number;

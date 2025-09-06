@@ -89,7 +89,26 @@ export abstract class ErrorFormatter {
       ? `${failure.suiteName} › ${failure.testTitle}`
       : failure.testTitle;
 
-    const errorMessage = failure.error.message || failure.error.value || 'Unknown error';
+    let errorMessage = failure.error.message || failure.error.value || 'Unknown error';
+
+    // Enhance timeout error messages with context
+    if (errorMessage.includes('Timeout') || errorMessage.includes('exceeded')) {
+      const waitingForMatch = errorMessage.match(/waiting for (.+?)(?:\n|$)/);
+      if (waitingForMatch) {
+        errorMessage += `\n\n⏱️ Timeout Context:\n`;
+        errorMessage += `- Was waiting for: ${waitingForMatch[1]}\n`;
+        errorMessage += `- Duration before timeout: ${duration}ms\n`;
+        if (failure.pageState?.url) {
+          errorMessage += `- Page URL at timeout: ${failure.pageState.url}\n`;
+        }
+        if (failure.pageState?.actionHistory && failure.pageState.actionHistory.length > 0) {
+          const lastAction =
+            failure.pageState.actionHistory[failure.pageState.actionHistory.length - 1];
+          errorMessage += `- Last action before timeout: ${lastAction}\n`;
+        }
+      }
+    }
+
     const cleanMessage = this.stripAnsiCodes(errorMessage);
 
     // Extract failed selector from error message if available
@@ -118,9 +137,7 @@ export abstract class ErrorFormatter {
       networkErrors: failure.networkErrors,
       stdout: failure.stdout,
       stderr: failure.stderr,
-      screenshotPath: failure.screenshot
-        ? `failure-${testIndex}-${failure.testTitle.replace(/[^a-z0-9]/gi, '_')}.png`
-        : undefined,
+      screenshotPath: failure.screenshot ? 'screenshot.png' : undefined,
     };
   }
 
@@ -183,11 +200,13 @@ export class ConsoleFormatter extends ErrorFormatter {
 
     sections.push('  ### 🔍 Page State When Failed');
 
-    if (data.pageUrl) {
-      sections.push(`  **URL:** ${data.pageUrl}`);
-    }
-    if (data.pageTitle) {
-      sections.push(`  **Title:** ${data.pageTitle}`);
+    // Always show URL and title
+    sections.push(`  **URL:** ${data.pageUrl || 'unknown'}`);
+    sections.push(`  **Title:** ${data.pageTitle || 'unknown'}`);
+
+    // Add screenshot reference if available
+    if (data.screenshotPath) {
+      sections.push(`  **Screenshot:** Saved to ${data.screenshotPath}`);
     }
 
     if (data.actionHistory && data.actionHistory.length > 0) {
@@ -335,7 +354,7 @@ export class MarkdownFormatter extends ErrorFormatter {
         ? message.substring(0, this.options.maxErrorLength) + '\n... (truncated)'
         : message;
 
-    return `### Error\n\`\`\`\n${truncated}\n\`\`\`\n`;
+    return `### Error\n${truncated}\n`;
   }
 
   formatCodeSnippet(snippet: string): string {
@@ -352,10 +371,15 @@ export class MarkdownFormatter extends ErrorFormatter {
 
     sections.push(`### ${emoji}Page State When Failed\n`);
 
-    if (data.pageUrl || data.pageTitle) {
-      sections.push(`**URL:** ${data.pageUrl || 'unknown'}`);
-      sections.push(`**Title:** ${data.pageTitle || 'unknown'}\n`);
+    // Always show URL and title, even if they're unknown
+    sections.push(`**URL:** ${data.pageUrl || 'unknown'}`);
+    sections.push(`**Title:** ${data.pageTitle || 'unknown'}`);
+
+    // Add screenshot reference if available
+    if (data.screenshotPath) {
+      sections.push(`**Screenshot:** [View Screenshot](./${data.screenshotPath})`);
     }
+    sections.push(''); // Add blank line for spacing
 
     if (data.actionHistory && data.actionHistory.length > 0) {
       sections.push(this.formatActionHistory(data.actionHistory));
@@ -525,7 +549,7 @@ export class MarkdownFormatter extends ErrorFormatter {
 
   formatScreenshot(path?: string): string {
     if (!path) return '';
-    const emoji = this.includeEmoji ? '### Screenshot' : '### Screenshot';
-    return `${emoji}\n![Screenshot](./${path})\n`;
+    const emoji = this.includeEmoji ? '📸 ' : '';
+    return `### ${emoji}Screenshot\n![Screenshot](./${path})\n`;
   }
 }

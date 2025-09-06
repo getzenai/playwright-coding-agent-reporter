@@ -3,8 +3,7 @@ dist/
 *.log
 .DS_Store
 test-results/
-test-reports/
-playwright-agent-report/
+test-report-for-coding-agents/
 playwright-report/
 playwright/.cache/
 temp-screenshot.png

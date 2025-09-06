@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
 
 export default defineConfig({
-  testDir: './fixtures',
+  testDir: '.',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -10,9 +10,9 @@ export default defineConfig({
 
   reporter: [
     [
-      path.resolve(__dirname, '../dist/index.js'),
+      path.resolve(__dirname, '../../dist/index.js'),
       {
-        outputDir: 'test-results',
+        // Uses default: 'test-report-for-coding-agents' in project root
         includeScreenshots: true,
         includeConsoleErrors: true,
         includeNetworkErrors: true,

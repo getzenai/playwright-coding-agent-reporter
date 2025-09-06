@@ -59,9 +59,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run tests
-        run: npm test
-        continue-on-error: true
+      - name: Run unit tests
+        run: npm run test:unit
 
   security-check:
     name: Security Check

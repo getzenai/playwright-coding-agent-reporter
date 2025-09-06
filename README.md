@@ -36,135 +36,184 @@ export default defineConfig({
     [
       '@zenai/playwright-coding-agent-reporter',
       {
-        outputDir: 'test-results',
-        includeScreenshots: true,
-        includeVideo: false, // Off by default for efficiency
-        silent: false, // Show helpful console output (true hides per-test passes, keeps summary)
+        outputDir: 'test-report-for-coding-agents',
+        includeScreenshots: true, // Include screenshots in reports when available
+        silent: false, // Show helpful console output
         singleReportFile: true, // All errors in one file
       },
     ],
   ],
   use: {
-    video: 'off', // Turn off video by default
-    screenshot: 'only-on-failure',
+    // IMPORTANT: Configure Playwright to take screenshots on failure
+    screenshot: 'only-on-failure', // This tells Playwright WHEN to take screenshots
+    video: 'off', // Turn off video by default for efficiency
   },
 });
 ```
 
+#### Screenshot Configuration
+
+**Important:** Screenshot capture is controlled at two levels:
+
+1. **Playwright Level** (`use.screenshot`): Controls WHEN screenshots are taken
+   - `'off'` - No screenshots
+   - `'on'` - Always take screenshots
+   - `'only-on-failure'` - Only on test failure (recommended)
+
+2. **Reporter Level** (`includeScreenshots`): Controls whether captured screenshots are included in reports
+   - `true` - Include screenshots in error reports when they exist (default)
+   - `false` - Don't include screenshots in reports, even if Playwright captured them
+
+For optimal debugging, use:
+
+- `screenshot: 'only-on-failure'` in Playwright config (to capture screenshots)
+- `includeScreenshots: true` in reporter config (to include them in reports)
+
 ### Configuration Options
 
-| Option                 | Type    | Default          | Description                                           |
-| ---------------------- | ------- | ---------------- | ----------------------------------------------------- |
-| `outputDir`            | string  | `'test-results'` | Directory for report output                           |
-| `includeScreenshots`   | boolean | `true`           | Capture screenshots on failure                        |
-| `includeConsoleErrors` | boolean | `true`           | Capture console errors and warnings                   |
-| `includeNetworkErrors` | boolean | `true`           | Capture network request failures                      |
-| `includeVideo`         | boolean | `false`          | Include video capture (off by default for efficiency) |
-| `silent`               | boolean | `false`          | Suppress per-test pass output; still shows summary    |
-| `maxErrorLength`       | number  | `5000`           | Maximum error message length                          |
-| `outputFormat`         | string  | `'markdown'`     | Report format (currently only markdown)               |
-| `singleReportFile`     | boolean | `true`           | Generate single consolidated error-context.md file    |
+| Option                 | Type    | Default                           | Description                                                                             |
+| ---------------------- | ------- | --------------------------------- | --------------------------------------------------------------------------------------- |
+| `outputDir`            | string  | `'test-report-for-coding-agents'` | Directory for report output                                                             |
+| `includeScreenshots`   | boolean | `true`                            | Include screenshots in error reports when available (see note below)                    |
+| `includeConsoleErrors` | boolean | `true`                            | Capture console errors and warnings                                                     |
+| `includeNetworkErrors` | boolean | `true`                            | Capture network request failures                                                        |
+| `includeVideo`         | boolean | `false`                           | Include video references in reports when available (Playwright must have video enabled) |
+| `silent`               | boolean | `false`                           | Suppress per-test pass output; still shows summary                                      |
+| `maxErrorLength`       | number  | `5000`                            | Maximum error message length                                                            |
+| `singleReportFile`     | boolean | `true`                            | Generate single consolidated error-context.md file                                      |
+| `capturePageState`     | boolean | `true`                            | Capture page state on failure (URL, title, available selectors, visible text)           |
+| `verboseErrors`        | boolean | `true`                            | Include detailed error information                                                      |
+| `maxInlineErrors`      | number  | `5`                               | Maximum number of errors to show in console output                                      |
+| `showCodeSnippet`      | boolean | `true`                            | Show code snippet at error location                                                     |
 
 ### Output Structure
 
 When tests fail, the reporter generates a consolidated report and per-test artifacts:
 
 ```
-test-results/
-├── error-context.md                                  # Consolidated failure report (all failures)
-├── .last-run.json                                    # Run metadata (from Playwright)
-├── example-Example-Test-Suite-...-element-not-found-chromium/
-│   ├── error-context.md                              # Per-test failure report (replaces Playwright’s)
-│   └── test-failed-1.png                             # Screenshot for this failure (if enabled)
-├── example-Example-Test-Suite-...-assertion-failure-chromium/
-│   ├── error-context.md
-│   └── test-failed-1.png
+test-report-for-coding-agents/
+├── all-failures.md  # Consolidated failure report (all failures)
+├── basic-reporter-features-failing-test-element-not-found-7/
+│   ├── report.md  # Detailed error report for this test
+│   └── screenshot.png  # Screenshot at failure (if enabled)
+├── basic-reporter-features-failing-test-assertion-failure-6/
+│   ├── report.md  # Detailed error report for this test
+│   └── screenshot.png  # Screenshot at failure (if enabled)
+├── timeout-handling-timeout-waiting-for-element-shows-enhanced-context-7/
+│   ├── report.md  # Detailed error report with timeout context
+│   └── screenshot.png  # Screenshot at timeout
 └── ...
 ```
 
 Notes:
 
-- Consolidated `error-context.md` contains a summary and detailed sections for each failure.
-- Per-test folders are created by Playwright; this reporter overwrites their `error-context.md` with a simpler, focused report.
+- `all-failures.md` - Consolidated report containing all test failures with summaries and links to individual reports
+- `report.md` - Per-test detailed error report with full context, stack traces, and debugging information
+- `screenshot.png` - Visual state captured at the moment of failure (when screenshots are enabled)
+- Folder names are generated from suite and test names with test index suffix for uniqueness
 
 ### Report Contents
 
 Each failure report includes:
 
 - **Test Location**: Exact file path and line number
-- **Error Details**: Complete error message and stack trace
-- **Page Context**: Current URL, page title, available selectors
-- **Console Output**: Captured errors and warnings
-- **Network Errors**: Failed requests
-- **Screenshots**: Visual state at failure
-- **Reproduction Command**: Ready-to-run command to reproduce
+- **Error Details**: Complete error message and stack trace with enhanced timeout context
+- **Page Context**: Current URL, page title, screenshot reference
+- **Available Selectors**: Sorted by relevance when element not found
+- **Action History**: Recent test actions before failure
+- **Console Output**: Captured JavaScript errors and warnings
+- **Network Errors**: Failed network requests
+- **Screenshots**: Visual state at failure with direct links
+- **HTML Context**: Relevant HTML around failed selectors
+- **Quick Links**: Navigation to individual test folders (in consolidated report)
 
 ### Console Output Example
 
-The reporter prints a per-test line for each test (unless `silent: true`), followed by detailed failure sections and a summary. Example excerpt (see `example_log.txt` for a full run):
+The reporter prints a per-test line for each test (unless `silent: true`), followed by detailed failure sections and a summary:
 
 ```
-Running 10 tests using 1 worker
+Running 25 tests using 4 workers
 
-  ✓  1 test/fixtures/example.spec.ts:4:7 › Example Test Suite › successful test - should pass (616ms)
-  ✘  2 test/fixtures/example.spec.ts:9:7 › Example Test Suite › failing test - element not found (5456ms)
-  ✘  3 test/fixtures/example.spec.ts:20:7 › Example Test Suite › failing test - assertion failure (813ms)
-  ✘  4 test/fixtures/example.spec.ts:27:7 › Example Test Suite › failing test with network error (5273ms)
-  -  5 test/fixtures/example.spec.ts:37:8 › Example Test Suite › skipped test
-  ✘  6 test/fixtures/example.spec.ts:41:7 › Example Test Suite › test with missing element for selector similarity (5503ms)
-  ✓  7 ...
-  ✓  8 ...
-  ✓  9 ...
-  ✓ 10 ...
+  ✓   4 test/e2e/reporter-demo.spec.ts:4:7 › Basic Reporter Features › successful test - should pass (584ms)
+  -   5 test/e2e/reporter-demo.spec.ts:37:8 › Basic Reporter Features › skipped test
+  ✘   6 test/e2e/reporter-demo.spec.ts:20:7 › Basic Reporter Features › failing test - assertion failure (957ms)
+  ✘   7 test/e2e/reporter-demo.spec.ts:9:7 › Basic Reporter Features › failing test - element not found (5605ms)
+  ✘   9 test/e2e/reporter-demo.spec.ts:41:7 › Basic Reporter Features › test with missing element for selector similarity (5327ms)
+  ...
 
-  ## 2) test/fixtures/example.spec.ts:17:7 › Example Test Suite › failing test - element not found (5456ms)
+  ## 7) test/e2e/reporter-demo.spec.ts:17:7 › Basic Reporter Features › failing test - element not found (5605ms)
 
   ### Error
-    Error: expect(locator).toBeVisible() failed
-    Locator:  locator('#non-existent-element')
-    Expected: visible
-    Received: <element(s) not found>
-    Timeout:  5000ms
+  Error: expect(locator).toBeVisible() failed
+
+  Locator:  locator('#non-existent-element')
+  Expected: visible
+  Received: <element(s) not found>
+  Timeout:  5000ms
+
+  Call log:
+    - Expect "toBeVisible" with timeout 5000ms
+    - waiting for locator('#non-existent-element')
+
+  ⏱️ Timeout Context:
+  - Was waiting for: locator('#non-existent-element')
+  - Duration before timeout: 5605ms
+  - Page URL at timeout: https://playwright.dev/
+  - Last action before timeout: 2025-09-06T10:10:56.247Z - ✗ Console error: This is a console error for testing
 
   ### Error Location
       15 |     });
       16 |
     > 17 |     await expect(page.locator('#non-existent-element')).toBeVisible();
-             |                                                         ^
+           |                                                         ^
       18 |   });
 
   ### 🔍 Page State When Failed
-    URL: https://playwright.dev/
-    Title: Fast and reliable end-to-end testing for modern web apps | Playwright
+  **URL:** https://playwright.dev/
+  **Title:** Fast and reliable end-to-end testing for modern web apps | Playwright
+  **Screenshot:** Saved to screenshot.png
 
   ### 📜 Recent Actions
-    2025-09-05T20:41:02.377Z - ✓ DOM ready: https://playwright.dev/
-    2025-09-05T20:41:02.393Z - ✓ Page loaded: https://playwright.dev/
-    2025-09-05T20:41:02.497Z - ✗ Console error: This is a console error for testing
+    2025-09-06T10:10:55.921Z - → Navigating to: https://playwright.dev
+    2025-09-06T10:10:56.192Z - ✓ DOM ready: https://playwright.dev/
+    2025-09-06T10:10:56.210Z - ✓ Page loaded: https://playwright.dev/
+    2025-09-06T10:10:56.247Z - ✗ Console error: This is a console error for testing
 
-  ### 🎯 Available Selectors (top 5)
+  ### 🎯 Available Selectors (sorted by relevance)
     h3:has-text("Resilient • No flaky tests")
     a:has-text("Skip to main content")
     button:has-text("Node.js")
-    button:has-text("SearchK")
+    button:has-text("Search⌘K")
     .clean-btn
+    .github-btn
+    [aria-label="76k+ stargazers on GitHub"]
+    [href="/community/welcome"]
+    ... and 42 more selectors
 
-  📝 Full Error Context: /workspaces/playwright-coding-agent-reporter/test-results/error-context.md
+  ### 📄 Visible Text (first 500 chars)
+    Skip to main content | Playwright | Docs | API | Node.js | Community | Search | ⌘ | K |
+    Playwright enables reliable end-to-end testing for modern web apps. | GET STARTED | Star | 76k+ |
+    Any browser • Any platform • One API | Cross-browser. Playwright supports all modern rendering
+    engines including Chromium, WebKit, and Firefox...
 
-  4 failed
-  5 passed
+  📝 **Full Error Context:** test-report-for-coding-agents/basic-reporter-features-failing-test-element-not-found-9/report.md
+
+  ... and 18 more failures. See test-report-for-coding-agents/all-failures.md for complete details.
+
+  23 failed
+  1 passed
   1 skipped
-  10 total
-  Finished in 21.5s
+  25 total
+  Finished in 39.0s
 
-  📝 Detailed error report: /workspaces/playwright-coding-agent-reporter/test-results/error-context.md
+  📝 Detailed error report: test-report-for-coding-agents/all-failures.md
 ```
 
 ### Integration with AI/LLM Agents
 
 This reporter is optimized for AI coding assistants (Claude Code, Codex, Aider, Roo Code, Cursor, etc.). When tests fail:
 
-1. **Single File Context**: The AI reads one `error-context.md` file containing all failures
+1. **Single File Context**: The AI reads one `all-failures.md` file containing all failures
 2. **Structured Information**: Each failure includes exact line numbers, error messages, and stack traces
 3. **Visual Context**: Screenshots and smart selector suggestions provide debugging insights
 4. **Immediate Debugging**: Console and network errors are captured inline
@@ -205,7 +254,14 @@ npm run build
 ### Testing
 
 ```bash
+# Run unit tests (Vitest - no browser required)
+npm run test:unit
+
+# Run E2E demo tests (Playwright - demonstrates reporter output)
 npm run test:example
+
+# Run all tests
+npm test          # Runs unit tests only (used in CI)
 ```
 
 ### Watch Mode
