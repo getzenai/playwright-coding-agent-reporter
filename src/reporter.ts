@@ -265,19 +265,41 @@ export class CodingAgentReporter implements Reporter {
   }
 
   private extractPageContext(result: TestResult, failure: FailureContext): void {
+    // Extract attachments first
     for (const attachment of result.attachments) {
       if (attachment.name === 'screenshot' && this.options.includeScreenshots) {
         failure.screenshot = attachment.body;
       } else if (attachment.name === 'page-url') {
         failure.pageUrl = attachment.body?.toString('utf-8');
+      } else if (attachment.name === 'console-errors' && attachment.body) {
+        try {
+          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          if (Array.isArray(errors)) {
+            failure.consoleErrors = errors;
+          }
+        } catch {}
+      } else if (attachment.name === 'network-errors' && attachment.body) {
+        try {
+          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          if (Array.isArray(errors)) {
+            failure.networkErrors = errors;
+          }
+        } catch {}
       }
     }
 
-    if (this.options.includeConsoleErrors) {
+    // Fallback to extracting from stdout/stderr if not in attachments
+    if (
+      this.options.includeConsoleErrors &&
+      (!failure.consoleErrors || failure.consoleErrors.length === 0)
+    ) {
       failure.consoleErrors = this.extractConsoleErrors(result);
     }
 
-    if (this.options.includeNetworkErrors) {
+    if (
+      this.options.includeNetworkErrors &&
+      (!failure.networkErrors || failure.networkErrors.length === 0)
+    ) {
       failure.networkErrors = this.extractNetworkErrors(result);
     }
   }
@@ -688,6 +710,78 @@ export class CodingAgentReporter implements Reporter {
       return;
     }
 
+    // Add quick navigation to individual test folders
+    report += `## Failed Tests Quick Links\n\n`;
+
+    // Group failures by type
+    const timeoutFailures = this.failures.filter(
+      (f) => f.error.message?.includes('Timeout') || f.error.message?.includes('exceeded')
+    );
+    const assertionFailures = this.failures.filter(
+      (f) => f.error.message?.includes('expect') || f.error.message?.includes('assertion')
+    );
+    const elementNotFoundFailures = this.failures.filter(
+      (f) => f.error.message?.includes('not found') || f.error.message?.includes('no element')
+    );
+    const otherFailures = this.failures.filter(
+      (f) =>
+        !timeoutFailures.includes(f) &&
+        !assertionFailures.includes(f) &&
+        !elementNotFoundFailures.includes(f)
+    );
+
+    if (timeoutFailures.length > 0) {
+      report += `### ⏱️ Timeout Failures (${timeoutFailures.length})\n`;
+      for (const failure of timeoutFailures) {
+        const testFolder = await this.findTestFolder(failure);
+        if (testFolder) {
+          report += `- [${failure.testTitle}](./${testFolder}/ai-error-report.md)\n`;
+        } else {
+          report += `- ${failure.testTitle}\n`;
+        }
+      }
+      report += `\n`;
+    }
+
+    if (elementNotFoundFailures.length > 0) {
+      report += `### 🔍 Element Not Found (${elementNotFoundFailures.length})\n`;
+      for (const failure of elementNotFoundFailures) {
+        const testFolder = await this.findTestFolder(failure);
+        if (testFolder) {
+          report += `- [${failure.testTitle}](./${testFolder}/ai-error-report.md)\n`;
+        } else {
+          report += `- ${failure.testTitle}\n`;
+        }
+      }
+      report += `\n`;
+    }
+
+    if (assertionFailures.length > 0) {
+      report += `### ✗ Assertion Failures (${assertionFailures.length})\n`;
+      for (const failure of assertionFailures) {
+        const testFolder = await this.findTestFolder(failure);
+        if (testFolder) {
+          report += `- [${failure.testTitle}](./${testFolder}/ai-error-report.md)\n`;
+        } else {
+          report += `- ${failure.testTitle}\n`;
+        }
+      }
+      report += `\n`;
+    }
+
+    if (otherFailures.length > 0) {
+      report += `### 🔧 Other Failures (${otherFailures.length})\n`;
+      for (const failure of otherFailures) {
+        const testFolder = await this.findTestFolder(failure);
+        if (testFolder) {
+          report += `- [${failure.testTitle}](./${testFolder}/ai-error-report.md)\n`;
+        } else {
+          report += `- ${failure.testTitle}\n`;
+        }
+      }
+      report += `\n`;
+    }
+
     report += `---\n\n`;
 
     for (let i = 0; i < this.failures.length; i++) {
@@ -718,6 +812,13 @@ export class CodingAgentReporter implements Reporter {
       const errorData = this.markdownFormatter.extractErrorData(failure, i + 1);
       const formattedOutput = this.markdownFormatter.formatError(errorData);
       report += formattedOutput;
+
+      // Add link to individual test folder if it exists
+      const testFolder = await this.findTestFolder(failure);
+      if (testFolder) {
+        report += `\n📁 **Test artifacts folder:** [${testFolder}](./${testFolder})\n`;
+      }
+
       report += '\n---\n\n';
     }
 
@@ -734,54 +835,130 @@ export class CodingAgentReporter implements Reporter {
     }
 
     const dirs = await fs.promises.readdir(this.outputDir);
+    const unmatchedFailures = [...this.failures];
+    const matchedDirs = new Set<string>();
 
+    // First pass: try to match directories to failures based on test title
     for (const dir of dirs) {
       const dirPath = path.join(this.outputDir, dir);
       const stat = await fs.promises.stat(dirPath);
 
       if (stat.isDirectory()) {
-        // Check if this directory has an error-context.md file (created by Playwright)
-        const errorContextPath = path.join(dirPath, 'error-context.md');
-        if (fs.existsSync(errorContextPath)) {
-          // Find the corresponding failure for this test directory
-          let matched = false;
+        // Skip non-test directories
+        if (dir === 'screenshots' || dir === 'traces') continue;
 
-          for (const failure of this.failures) {
-            // Create multiple possible patterns to match
-            const testWords = failure.testTitle
-              .toLowerCase()
-              .replace(/[^a-z0-9\s]/g, '')
-              .split(/\s+/)
-              .filter((w) => w.length > 2);
-            const dirLower = dir.toLowerCase();
+        let bestMatch: { failure: FailureContext; score: number } | null = null;
 
-            // Check if directory name contains key words from test
-            const matchCount = testWords.filter((word) => dirLower.includes(word)).length;
-
-            if (matchCount >= 2 || (matchCount >= 1 && testWords.length <= 2)) {
-              // Generate the individual error report
-              const report = await this.generateIndividualErrorReport(failure);
-
-              // Overwrite the Playwright-generated error-context.md
-              await fs.promises.writeFile(errorContextPath, report, 'utf-8');
-              matched = true;
-              break;
-            }
+        // Find the best matching failure for this directory
+        for (const failure of unmatchedFailures) {
+          const score = this.calculateMatchScore(failure, dir);
+          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { failure, score };
           }
+        }
 
-          // If no match found but we have failures, use the first failure as fallback
-          if (!matched && this.failures.length > 0) {
-            // Try to match by index - assuming order is preserved
-            const failureIndex = dirs.indexOf(dir);
-            if (failureIndex < this.failures.length) {
-              const failure = this.failures[failureIndex];
-              const report = await this.generateIndividualErrorReport(failure);
-              await fs.promises.writeFile(errorContextPath, report, 'utf-8');
-            }
+        if (bestMatch && bestMatch.score >= 2) {
+          // Generate the individual error report with our own filename
+          // We don't overwrite Playwright's error-context.md to preserve their debugging info
+          const aiReportPath = path.join(dirPath, 'ai-error-report.md');
+          const report = await this.generateIndividualErrorReport(bestMatch.failure);
+          await fs.promises.writeFile(aiReportPath, report, 'utf-8');
+
+          // Remove matched failure from unmatched list
+          const index = unmatchedFailures.indexOf(bestMatch.failure);
+          if (index > -1) {
+            unmatchedFailures.splice(index, 1);
           }
+          matchedDirs.add(dir);
         }
       }
     }
+
+    // Second pass: write any remaining unmatched failures to unmatched directories
+    for (const dir of dirs) {
+      if (matchedDirs.has(dir)) continue;
+
+      const dirPath = path.join(this.outputDir, dir);
+      const stat = await fs.promises.stat(dirPath);
+
+      if (stat.isDirectory() && unmatchedFailures.length > 0) {
+        // Skip non-test directories
+        if (dir === 'screenshots' || dir === 'traces') continue;
+
+        const failure = unmatchedFailures.shift();
+        if (failure) {
+          // Generate the individual error report with our own filename
+          const aiReportPath = path.join(dirPath, 'ai-error-report.md');
+          const report = await this.generateIndividualErrorReport(failure);
+          await fs.promises.writeFile(aiReportPath, report, 'utf-8');
+        }
+      }
+    }
+  }
+
+  private calculateMatchScore(failure: FailureContext, dirName: string): number {
+    let score = 0;
+    const dirLower = dirName.toLowerCase();
+
+    // Extract meaningful words from test title
+    const testWords = failure.testTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+
+    // Score based on matching words
+    for (const word of testWords) {
+      if (dirLower.includes(word)) {
+        // Longer words get higher scores
+        score += word.length > 5 ? 2 : 1;
+      }
+    }
+
+    // Bonus for specific test name patterns
+    if (failure.testTitle.includes('network') && dirLower.includes('network')) {
+      score += 3;
+    }
+    if (failure.testTitle.includes('element') && dirLower.includes('element')) {
+      score += 3;
+    }
+    if (failure.testTitle.includes('assertion') && dirLower.includes('assertion')) {
+      score += 3;
+    }
+    if (failure.testTitle.includes('selector') && dirLower.includes('selector')) {
+      score += 3;
+    }
+
+    return score;
+  }
+
+  private async findTestFolder(failure: FailureContext): Promise<string | null> {
+    try {
+      if (!fs.existsSync(this.outputDir)) {
+        return null;
+      }
+
+      const dirs = await fs.promises.readdir(this.outputDir);
+      let bestMatch: { dir: string; score: number } | null = null;
+
+      for (const dir of dirs) {
+        const dirPath = path.join(this.outputDir, dir);
+        const stat = await fs.promises.stat(dirPath);
+
+        if (stat.isDirectory() && dir !== 'screenshots' && dir !== 'traces') {
+          const score = this.calculateMatchScore(failure, dir);
+          if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { dir, score };
+          }
+        }
+      }
+
+      return bestMatch && bestMatch.score >= 2 ? bestMatch.dir : null;
+    } catch (error) {
+      console.error('Error finding test folder:', error);
+    }
+
+    return null;
   }
 
   private async generateIndividualErrorReport(failure: FailureContext): Promise<string> {

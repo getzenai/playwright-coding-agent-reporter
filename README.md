@@ -37,33 +37,55 @@ export default defineConfig({
       '@zenai/playwright-coding-agent-reporter',
       {
         outputDir: 'test-results',
-        includeScreenshots: true,
-        includeVideo: false, // Off by default for efficiency
-        silent: false, // Show helpful console output (true hides per-test passes, keeps summary)
+        includeScreenshots: true, // Include screenshots in reports when available
+        silent: false, // Show helpful console output
         singleReportFile: true, // All errors in one file
       },
     ],
   ],
   use: {
-    video: 'off', // Turn off video by default
-    screenshot: 'only-on-failure',
+    // IMPORTANT: Configure Playwright to take screenshots on failure
+    screenshot: 'only-on-failure', // This tells Playwright WHEN to take screenshots
+    video: 'off', // Turn off video by default for efficiency
   },
 });
 ```
 
+#### Screenshot Configuration
+
+**Important:** Screenshot capture is controlled at two levels:
+
+1. **Playwright Level** (`use.screenshot`): Controls WHEN screenshots are taken
+   - `'off'` - No screenshots
+   - `'on'` - Always take screenshots
+   - `'only-on-failure'` - Only on test failure (recommended)
+
+2. **Reporter Level** (`includeScreenshots`): Controls whether captured screenshots are included in reports
+   - `true` - Include screenshots in error reports when they exist (default)
+   - `false` - Don't include screenshots in reports, even if Playwright captured them
+
+For optimal debugging, use:
+
+- `screenshot: 'only-on-failure'` in Playwright config (to capture screenshots)
+- `includeScreenshots: true` in reporter config (to include them in reports)
+
 ### Configuration Options
 
-| Option                 | Type    | Default          | Description                                           |
-| ---------------------- | ------- | ---------------- | ----------------------------------------------------- |
-| `outputDir`            | string  | `'test-results'` | Directory for report output                           |
-| `includeScreenshots`   | boolean | `true`           | Capture screenshots on failure                        |
-| `includeConsoleErrors` | boolean | `true`           | Capture console errors and warnings                   |
-| `includeNetworkErrors` | boolean | `true`           | Capture network request failures                      |
-| `includeVideo`         | boolean | `false`          | Include video capture (off by default for efficiency) |
-| `silent`               | boolean | `false`          | Suppress per-test pass output; still shows summary    |
-| `maxErrorLength`       | number  | `5000`           | Maximum error message length                          |
-| `outputFormat`         | string  | `'markdown'`     | Report format (currently only markdown)               |
-| `singleReportFile`     | boolean | `true`           | Generate single consolidated error-context.md file    |
+| Option                 | Type    | Default          | Description                                                                             |
+| ---------------------- | ------- | ---------------- | --------------------------------------------------------------------------------------- |
+| `outputDir`            | string  | `'test-results'` | Directory for report output                                                             |
+| `includeScreenshots`   | boolean | `true`           | Include screenshots in error reports when available (see note below)                    |
+| `includeConsoleErrors` | boolean | `true`           | Capture console errors and warnings                                                     |
+| `includeNetworkErrors` | boolean | `true`           | Capture network request failures                                                        |
+| `includeVideo`         | boolean | `false`          | Include video references in reports when available (Playwright must have video enabled) |
+| `silent`               | boolean | `false`          | Suppress per-test pass output; still shows summary                                      |
+| `maxErrorLength`       | number  | `5000`           | Maximum error message length                                                            |
+| `outputFormat`         | string  | `'markdown'`     | Report format (currently only markdown)                                                 |
+| `singleReportFile`     | boolean | `true`           | Generate single consolidated error-context.md file                                      |
+| `capturePageState`     | boolean | `true`           | Capture page state on failure (URL, title, available selectors, visible text)           |
+| `verboseErrors`        | boolean | `true`           | Include detailed error information                                                      |
+| `maxInlineErrors`      | number  | `5`              | Maximum number of errors to show in console output                                      |
+| `showCodeSnippet`      | boolean | `true`           | Show code snippet at error location                                                     |
 
 ### Output Structure
 
@@ -74,10 +96,12 @@ test-results/
 ├── error-context.md                                  # Consolidated failure report (all failures)
 ├── .last-run.json                                    # Run metadata (from Playwright)
 ├── example-Example-Test-Suite-...-element-not-found-chromium/
-│   ├── error-context.md                              # Per-test failure report (replaces Playwright’s)
+│   ├── error-context.md                              # Playwright's original error report
+│   ├── ai-error-report.md                            # AI-optimized error report (our enhanced version)
 │   └── test-failed-1.png                             # Screenshot for this failure (if enabled)
 ├── example-Example-Test-Suite-...-assertion-failure-chromium/
-│   ├── error-context.md
+│   ├── error-context.md                              # Playwright's original error report
+│   ├── ai-error-report.md                            # AI-optimized error report (our enhanced version)
 │   └── test-failed-1.png
 └── ...
 ```
@@ -85,19 +109,23 @@ test-results/
 Notes:
 
 - Consolidated `error-context.md` contains a summary and detailed sections for each failure.
-- Per-test folders are created by Playwright; this reporter overwrites their `error-context.md` with a simpler, focused report.
+- Per-test folders are created by Playwright; this reporter adds `ai-error-report.md` alongside Playwright's original `error-context.md`.
+- Both reports are preserved: Playwright's for standard debugging, ours for AI/LLM-optimized analysis.
 
 ### Report Contents
 
 Each failure report includes:
 
 - **Test Location**: Exact file path and line number
-- **Error Details**: Complete error message and stack trace
-- **Page Context**: Current URL, page title, available selectors
-- **Console Output**: Captured errors and warnings
-- **Network Errors**: Failed requests
-- **Screenshots**: Visual state at failure
-- **Reproduction Command**: Ready-to-run command to reproduce
+- **Error Details**: Complete error message and stack trace with enhanced timeout context
+- **Page Context**: Current URL, page title, screenshot reference
+- **Available Selectors**: Sorted by relevance when element not found
+- **Action History**: Recent test actions before failure
+- **Console Output**: Captured JavaScript errors and warnings
+- **Network Errors**: Failed network requests
+- **Screenshots**: Visual state at failure with direct links
+- **HTML Context**: Relevant HTML around failed selectors
+- **Quick Links**: Navigation to individual test folders (in consolidated report)
 
 ### Console Output Example
 

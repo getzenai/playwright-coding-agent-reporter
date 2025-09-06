@@ -26,6 +26,8 @@ class ActionTracker {
 
 export const test = base.extend<{
   actionTracker: ActionTracker;
+  consoleErrors: string[];
+  networkErrors: string[];
   autoCapture: void;
 }>({
   actionTracker: async ({}, use) => {
@@ -33,8 +35,18 @@ export const test = base.extend<{
     await use(tracker);
   },
 
+  consoleErrors: async ({}, use) => {
+    const errors: string[] = [];
+    await use(errors);
+  },
+
+  networkErrors: async ({}, use) => {
+    const errors: string[] = [];
+    await use(errors);
+  },
+
   autoCapture: [
-    async ({ page, actionTracker }, use, testInfo) => {
+    async ({ page, actionTracker, consoleErrors, networkErrors }, use, testInfo) => {
       page.on('load', () => {
         actionTracker.add(`✓ Page loaded: ${page.url()}`);
       });
@@ -45,12 +57,26 @@ export const test = base.extend<{
 
       page.on('console', (msg) => {
         if (msg.type() === 'error') {
-          actionTracker.add(`✗ Console error: ${msg.text()}`);
+          const errorText = msg.text();
+          actionTracker.add(`✗ Console error: ${errorText}`);
+          consoleErrors.push(`[${new Date().toISOString()}] ${errorText}`);
+        } else if (msg.type() === 'warning') {
+          const warningText = msg.text();
+          consoleErrors.push(`[WARNING] ${warningText}`);
         }
       });
 
       page.on('requestfailed', (request) => {
-        actionTracker.add(`✗ Network failed: ${request.method()} ${request.url()}`);
+        const errorText = `${request.method()} ${request.url()} - ${request.failure()?.errorText || 'Failed'}`;
+        actionTracker.add(`✗ Network failed: ${errorText}`);
+        networkErrors.push(errorText);
+      });
+
+      // Also capture page errors (JavaScript errors)
+      page.on('pageerror', (error) => {
+        const errorText = error.message || error.toString();
+        actionTracker.add(`✗ Page error: ${errorText}`);
+        consoleErrors.push(`[PAGE ERROR] ${errorText}`);
       });
 
       let lastPageState: any = null;
@@ -189,6 +215,22 @@ ${pageState.htmlSnippet ? pageState.htmlSnippet.substring(0, MAX_HTML_CONTEXT) :
           await testInfo.attach('action-history', {
             body: actionTracker.get().join('\n'),
           });
+
+          // Attach console errors if any
+          if (consoleErrors.length > 0) {
+            await testInfo.attach('console-errors', {
+              body: JSON.stringify(consoleErrors),
+              contentType: 'application/json',
+            });
+          }
+
+          // Attach network errors if any
+          if (networkErrors.length > 0) {
+            await testInfo.attach('network-errors', {
+              body: JSON.stringify(networkErrors),
+              contentType: 'application/json',
+            });
+          }
         } catch (error) {
           console.error('Failed to capture page state:', error);
         }
