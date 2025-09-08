@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.0...v1.1.1) (2025-09-08)
+
+
+### Bug Fixes
+
+* resolve timeout issues leading to minimal test output ([#11](https://github.com/getzenai/playwright-coding-agent-reporter/issues/11)) ([dad5671](https://github.com/getzenai/playwright-coding-agent-reporter/commit/dad5671b7865ec61a420d52c3a351dce9477c952))
+
 # [1.1.0](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.0.0...v1.1.0) (2025-09-06)
 
 
