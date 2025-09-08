@@ -5,11 +5,9 @@
   },
   "customizations": {
     "vscode": {
-      "extensions": [
-        "ms-playwright.playwright"
-      ]
+      "extensions": ["ms-playwright.playwright"]
     }
   },
-  "postCreateCommand": "npm install && npx playwright install chromium --with-deps",
+  "postCreateCommand": "npm install && npm run build && npx playwright install chromium --with-deps",
   "remoteUser": "node"
 }
