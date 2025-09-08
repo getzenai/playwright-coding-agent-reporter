@@ -2,8 +2,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 
 import { Page } from '@playwright/test';
 
@@ -74,10 +72,10 @@ export class PageStateCapture {
       // Add timeout for evaluate (2 seconds)
       // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
 
-      const texts = await page.evaluate((): any => {
-        // Simple text extraction
-        const bodyText =
-          (document as any).body?.innerText || (document as any).body?.textContent || '';
+      const texts = await page.evaluate((): string => {
+        // Simple text extraction - cast to any for DOM access in browser context
+        const doc = document as any;
+        const bodyText = doc.body?.innerText || doc.body?.textContent || '';
 
         return (bodyText as string).substring(0, 2000);
       });
@@ -96,12 +94,13 @@ export class PageStateCapture {
       // Add timeout for evaluate (2 seconds)
       // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
 
-      const selectors = await page.evaluate((): any => {
+      const selectors = await page.evaluate((): string[] => {
         const elements: string[] = [];
 
         // Simple check - are we even in a page with content?
+        const doc = document as any;
 
-        if (!(document as any).body) {
+        if (!doc.body) {
           return ['No document body found'];
         }
 
@@ -116,9 +115,8 @@ export class PageStateCapture {
 
         // Enhanced button selectors with better patterns
 
-        (document as any)
+        doc
           .querySelectorAll('button, [role="button"], [type="submit"], [type="button"]')
-
           .forEach((button: any) => {
             const text = button.textContent?.trim();
 
@@ -128,61 +126,51 @@ export class PageStateCapture {
               button.getAttribute('data-testid') || button.getAttribute('data-test-id');
 
             if (text && text.length > 0) {
-              selectorCategories.interactive.push(
-                `button:has-text("${(text as string).substring(0, 30)}")`
-              );
+              selectorCategories.interactive.push(`button:has-text("${text.substring(0, 30)}")`);
             }
             if (ariaLabel) {
-              selectorCategories.interactive.push(`[aria-label="${ariaLabel as string}"]`);
+              selectorCategories.interactive.push(`[aria-label="${ariaLabel}"]`);
             }
             if (dataTestId) {
-              selectorCategories.interactive.push(`[data-testid="${dataTestId as string}"]`);
+              selectorCategories.interactive.push(`[data-testid="${dataTestId}"]`);
             }
 
-            if (button.id) selectorCategories.interactive.push(`#${button.id as string}`);
+            if (button.id) selectorCategories.interactive.push(`#${button.id}`);
 
             if (button.className && typeof button.className === 'string') {
-              const mainClass = (button.className as string)
-                .split(' ')
-                .filter((c: string) => c.length > 0)[0];
+              const mainClass = button.className.split(' ').filter((c: string) => c.length > 0)[0];
               if (mainClass) selectorCategories.interactive.push(`button.${mainClass}`);
             }
           });
 
         // Enhanced link selectors
 
-        (document as any)
-          .querySelectorAll('a[href], [role="link"]')
+        doc.querySelectorAll('a[href], [role="link"]').forEach((linkElement: any, i: number) => {
+          if (i >= 15) return; // Limit links
 
-          .forEach((linkElement: any, i: number) => {
-            if (i >= 15) return; // Limit links
+          const text = linkElement.textContent?.trim();
 
-            const text = linkElement.textContent?.trim();
+          const href = linkElement.getAttribute('href');
 
-            const href = linkElement.getAttribute('href');
+          const ariaLabel = linkElement.getAttribute('aria-label');
 
-            const ariaLabel = linkElement.getAttribute('aria-label');
+          if (text && text.length > 0) {
+            selectorCategories.navigation.push(`a:has-text("${text.substring(0, 30)}")`);
+          }
+          if (href && href !== '#' && href !== 'javascript:void(0)') {
+            selectorCategories.navigation.push(`[href="${href}"]`);
+          }
+          if (ariaLabel) {
+            selectorCategories.navigation.push(`[aria-label="${ariaLabel}"]`);
+          }
 
-            if (text && text.length > 0) {
-              selectorCategories.navigation.push(
-                `a:has-text("${(text as string).substring(0, 30)}")`
-              );
-            }
-            if (href && href !== '#' && href !== 'javascript:void(0)') {
-              selectorCategories.navigation.push(`[href="${href as string}"]`);
-            }
-            if (ariaLabel) {
-              selectorCategories.navigation.push(`[aria-label="${ariaLabel as string}"]`);
-            }
-
-            if (linkElement.id) selectorCategories.navigation.push(`#${linkElement.id as string}`);
-          });
+          if (linkElement.id) selectorCategories.navigation.push(`#${linkElement.id}`);
+        });
 
         // Enhanced form input selectors
 
-        (document as any)
+        doc
           .querySelectorAll('input, textarea, select, [contenteditable="true"]')
-
           .forEach((inputElement: any) => {
             const type = inputElement.getAttribute('type');
 
@@ -210,27 +198,23 @@ export class PageStateCapture {
 
         // Enhanced heading selectors
 
-        (document as any)
-          .querySelectorAll('h1, h2, h3, h4, [role="heading"]')
+        doc.querySelectorAll('h1, h2, h3, h4, [role="heading"]').forEach((headingElement: any) => {
+          const text = headingElement.textContent?.trim();
 
-          .forEach((headingElement: any) => {
-            const text = headingElement.textContent?.trim();
+          if (text && text.length > 0) {
+            const tagName = headingElement.tagName?.toLowerCase() || 'h1';
 
-            if (text && text.length > 0) {
-              const tagName = headingElement.tagName?.toLowerCase() || 'h1';
+            selectorCategories.content.push(
+              `${tagName as string}:has-text("${(text as string).substring(0, 50)}")`
+            );
+          }
 
-              selectorCategories.content.push(
-                `${tagName as string}:has-text("${(text as string).substring(0, 50)}")`
-              );
-            }
-
-            if (headingElement.id)
-              selectorCategories.content.push(`#${headingElement.id as string}`);
-          });
+          if (headingElement.id) selectorCategories.content.push(`#${headingElement.id as string}`);
+        });
 
         // Enhanced structural selectors with data attributes
 
-        (document as any)
+        doc
           .querySelectorAll('[data-testid], [data-test-id], [data-cy], [data-test]')
 
           .forEach((element: any) => {
@@ -246,7 +230,7 @@ export class PageStateCapture {
 
         // Role-based selectors
 
-        (document as any)
+        doc
           .querySelectorAll('[role]')
 
           .forEach((element: any) => {
@@ -279,7 +263,7 @@ export class PageStateCapture {
           'submit',
         ];
         classPatterns.forEach((pattern) => {
-          (document as any)
+          doc
             .querySelectorAll(`[class*="${pattern}"]`)
 
             .forEach((el: any, i: number) => {
@@ -317,36 +301,32 @@ export class PageStateCapture {
     try {
       // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
 
-      const html = await page.evaluate((sel: string): any => {
-        let context = (document as any).body as HTMLElement;
+      const html = await page.evaluate((sel: string): string => {
+        const doc = document as any;
+        let context = doc.body;
 
         if (sel.startsWith('#')) {
           const id = sel.substring(1);
-
-          const similar = (document as any).querySelector(
-            `[id*="${id.substring(0, Math.min(5, id.length))}"]`
-          ) as Element | null;
+          const similar = doc.querySelector(`[id*="${id.substring(0, Math.min(5, id.length))}"]`);
           if (similar) {
-            context = (similar.parentElement as HTMLElement) || context;
+            context = similar.parentElement || context;
           }
         }
 
         if (sel.startsWith('.')) {
           const className = sel.substring(1);
-
-          const similar = (document as any).querySelector(
+          const similar = doc.querySelector(
             `[class*="${className.substring(0, Math.min(5, className.length))}"]`
-          ) as Element | null;
+          );
           if (similar) {
-            context = (similar.parentElement as HTMLElement) || context;
+            context = similar.parentElement || context;
           }
         }
 
         const container =
           context.querySelector('main, [role="main"], article, .container, .content') || context;
 
-        const htmlContent =
-          (container as HTMLElement).innerHTML || (container as HTMLElement).outerHTML;
+        const htmlContent = container.innerHTML || container.outerHTML;
 
         return (htmlContent as string)
           .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')

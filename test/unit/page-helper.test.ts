@@ -137,7 +137,7 @@ describe('PageStateCapture', () => {
         evaluate: vi.fn().mockImplementation((fn) => {
           // Simulate browser context where document.body doesn't exist
           const fnString = fn.toString();
-          if (fnString.includes('document.body')) {
+          if (fnString.includes('doc.body') || fnString.includes('document.body')) {
             if (fnString.includes('innerText')) {
               // getVisibleText
               return '';
