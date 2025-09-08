@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.1...v1.1.2) (2025-09-08)
+
+
+### Bug Fixes
+
+* replace verbose test output with concise dot progress indicator ([#12](https://github.com/getzenai/playwright-coding-agent-reporter/issues/12)) ([d19ed10](https://github.com/getzenai/playwright-coding-agent-reporter/commit/d19ed1053330c55d2baf05a0bfcdc16dce8f2419)), closes [#5](https://github.com/getzenai/playwright-coding-agent-reporter/issues/5)
+
 ## [1.1.1](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.0...v1.1.1) (2025-09-08)
 
 
