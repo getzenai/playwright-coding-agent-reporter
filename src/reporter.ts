@@ -29,6 +29,8 @@ export class CodingAgentReporter implements Reporter {
   private workers: number = 1;
   private consoleFormatter: ConsoleFormatter;
   private markdownFormatter: MarkdownFormatter;
+  private dotColumn: number = 0;
+  private failedTestsForDotMode: Array<{ test: TestCase; result: TestResult }> = [];
 
   // Safety helpers
   private isSubdirectory(parentDir: string, dir: string): boolean {
@@ -203,25 +205,33 @@ export class CodingAgentReporter implements Reporter {
   }
 
   private printTestResult(test: TestCase, result: TestResult): void {
-    const statusSymbol = result.status === 'passed' ? '✓' : result.status === 'skipped' ? '-' : '✘';
-    const statusColor =
-      result.status === 'passed'
-        ? '\x1b[32m'
-        : result.status === 'skipped'
-          ? '\x1b[2m'
-          : '\x1b[31m';
+    // Print dot progress indicator
+    let symbol: string;
+    let color: string;
+
+    if (result.status === 'passed') {
+      symbol = '·';
+      color = '\x1b[32m'; // Green
+    } else if (result.status === 'skipped') {
+      symbol = '-';
+      color = '\x1b[33m'; // Yellow
+    } else {
+      symbol = 'F';
+      color = '\x1b[31m'; // Red
+      // Store failed test for later listing
+      this.failedTestsForDotMode.push({ test, result });
+    }
+
     const reset = '\x1b[0m';
+    process.stdout.write(`${color}${symbol}${reset}`);
 
-    const fileName = test.location.file.replace(process.cwd() + '/', '');
-    const duration = result.duration ? ` (${result.duration}ms)` : '';
-    const testPath = `${fileName}:${test.location.line}:${test.location.column}`;
-    const suiteName = test.parent.title || '';
+    this.dotColumn++;
 
-    const testNumber = String(this.testCounter).padStart(2);
-
-    console.log(
-      `  ${statusColor}${statusSymbol}${reset}  ${testNumber} ${testPath} › ${suiteName} › ${test.title}${duration}`
-    );
+    // Wrap at 80 characters
+    if (this.dotColumn >= 80) {
+      process.stdout.write('\n');
+      this.dotColumn = 0;
+    }
   }
 
   private captureFailure(test: TestCase, result: TestResult): void {
@@ -480,6 +490,24 @@ export class CodingAgentReporter implements Reporter {
 
   async onEnd(_result: FullResult): Promise<void> {
     this.testSummary.duration = Date.now() - this.startTime;
+
+    // Print newline after dots if we ended mid-line
+    if (!this.options.silent && this.dotColumn > 0) {
+      console.log('');
+    }
+
+    // Print failed test names immediately after dots (before detailed failures)
+    if (!this.options.silent && this.failedTestsForDotMode.length > 0) {
+      console.log('');
+      for (const { test, result } of this.failedTestsForDotMode) {
+        const fileName = test.location.file.replace(process.cwd() + '/', '');
+        const duration = result.duration ? ` (${result.duration}ms)` : '';
+        const testPath = `${fileName}:${test.location.line}:${test.location.column}`;
+        const suiteName = test.parent.title || '';
+
+        console.log(`  \x1b[31m✘\x1b[0m   ${testPath} › ${suiteName} › ${test.title}${duration}`);
+      }
+    }
 
     await this.generateMarkdownReports();
 
