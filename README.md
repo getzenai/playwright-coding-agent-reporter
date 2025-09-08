@@ -129,51 +129,46 @@ Each failure report includes:
 
 ### Console Output Example
 
-The reporter prints a per-test line for each test (unless `silent: true`), followed by detailed failure sections and a summary:
+The reporter now shows dot progress for test execution, followed by failed test names, and detailed failure sections with a summary:
 
-````
-Running 1 tests using 4 workers
+```
+Running 16 tests using 4 workers
 
-  ✘   1 test/e2e/basic-test.spec.ts:3:5 › Basic timeout - standard Playwright (2165ms)
+·F·F·F-FFFF·FFFFF
 
-  ## 1) test/e2e/basic-test.spec.ts:7:7 › basic-test.spec.ts › Basic timeout - standard Playwright
-     Duration: 2165ms
+  ✘   test/e2e/reporter-demo.spec.ts:16:7 › Reporter Core Features › assertion failure with context (583ms)
+  ✘   test/e2e/reporter-demo.spec.ts:23:7 › Reporter Core Features › console errors capture (2769ms)
+  ✘   test/e2e/reporter-demo.spec.ts:9:7 › Reporter Core Features › element not found - suggestions (2764ms)
+
+  ## 1) test/e2e/reporter-demo.spec.ts:20:7 › Reporter Core Features › assertion failure with context
+     Duration: 583ms
   ### Error
-  Error: expect(locator).toBeVisible() failed
+  Error: expect(received).toBe(expected) // Object.is equality
 
-  Locator:  locator('#does-not-exist')
-  Expected: visible
-  Received: <element(s) not found>
-  Timeout:  2000ms
+  Expected: "Expected Title"
+  Received: "Actual Title"
 
-  Call log:
-    - Expect "toBeVisible" with timeout 2000ms
-    - waiting for locator('#does-not-exist')
+  ### Code Location (TypeScript)
+    18 |
+    19 |     const title = await page.locator('h1').textContent();
+  > 20 |     expect(title).toBe('Expected Title');
+       |                   ^
+    21 |   });
 
-  ### Code Location
-  ```typescript
-    5 |
-    6 |   // This will timeout waiting for non-existent element
-  > 7 |   await expect(page.locator('#does-not-exist')).toBeVisible({ timeout: 2000 });
-      |                                                 ^
-    8 | });
-````
+  ### 🔍 Page State When Failed
+  **URL:** data:text/html,<h1>Actual Title</h1>
+  **Title:** unknown
+  **Screenshot:** Saved to screenshot.png
 
-### 🔍 Page State When Failed
+  📝 **Full Error Context:** test-report-for-coding-agents/reporter-core-features-assertion-failure-with-context-4/report.md
 
-**URL:** data:text/html,<h1>Test Page</h1>
-**Title:** unknown
-**Screenshot:** Saved to screenshot.png
-
-📝 **Full Error Context:** test-report-for-coding-agents/basic-test-spec-ts-basic-timeout-standard-playwright-1/report.md
-
-1 failed
-1 total
+15 failed
+1 passed
+16 total
 Finished in 3.1s
 
 📝 Detailed error report: test-report-for-coding-agents/all-failures.md
-
-````
+```
 
 ### Integration with AI/LLM Agents
 
@@ -207,7 +202,7 @@ test('user can complete checkout', async ({ page }) => {
   // Screenshots and available selectors captured on failure
   await expect(page.locator('.checkout-success')).toBeVisible();
 });
-````
+```
 
 ## Development
 
@@ -242,7 +237,7 @@ The default Playwright reporter surfaces the error, but often lacks enough surro
 
 This reporter focuses on actionable context for agents:
 
-- **Failure-first output**: Detailed sections only for failures (quiet mode hides passing tests apart from a summary)
+- **Dot progress output**: Concise dot progress with immediate failed test listing, detailed sections only for failures
 - **Page state snapshot**: URL, title, visible text, nearby/available selectors, recent actions
 - **Structured errors**: Consistent formatting with code snippets and stack traces
 - **Repro commands**: Ready-to-run commands per failing test
