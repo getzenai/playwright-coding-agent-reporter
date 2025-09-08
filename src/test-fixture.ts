@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test';
-import { PageStateCapture } from './page-helper';
+import { PageStateCapture } from './helpers/page-state-capture';
 
 const MAX_ACTION_HISTORY = 20;
 const MAX_FILL_VALUE_DISPLAY = 20;

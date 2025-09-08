@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PageStateCapture } from '../../src/page-helper';
+import { PageStateCapture } from '../../src/helpers/page-state-capture';
 
 describe('PageStateCapture', () => {
   describe('capturePageState', () => {

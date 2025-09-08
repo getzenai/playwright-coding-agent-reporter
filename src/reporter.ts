@@ -10,15 +10,13 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { CodingAgentReporterOptions, FailureContext, TestSummary } from './types';
-import {
-  ConsoleFormatter,
-  MarkdownFormatter,
-  FormatterOptions,
-  MAX_SIMILAR_SUGGESTIONS,
-} from './formatters';
+import { ConsoleFormatter } from './formatters/console';
+import { MarkdownFormatter } from './formatters/markdown';
+import { FormatterOptions } from './formatters/base';
 
-// Constants for similarity threshold
+// Constants
 const SIMILARITY_THRESHOLD = 0.5;
+const MAX_SIMILAR_SUGGESTIONS = 5;
 
 export class CodingAgentReporter implements Reporter {
   private options: Required<CodingAgentReporterOptions>;
@@ -32,7 +30,6 @@ export class CodingAgentReporter implements Reporter {
   private workers: number = 1;
   private consoleFormatter: ConsoleFormatter;
   private markdownFormatter: MarkdownFormatter;
-  private simpleMarkdownFormatter: MarkdownFormatter;
 
   // Safety helpers
   private isSubdirectory(parentDir: string, dir: string): boolean {
@@ -94,6 +91,7 @@ export class CodingAgentReporter implements Reporter {
 
     // Initialize formatters
     const formatterOptions: FormatterOptions = {
+      maxInlineErrors: this.options.maxInlineErrors,
       maxErrorLength: this.options.maxErrorLength,
       showCodeSnippet: this.options.showCodeSnippet,
       verboseErrors: this.options.verboseErrors,
@@ -101,8 +99,7 @@ export class CodingAgentReporter implements Reporter {
     };
 
     this.consoleFormatter = new ConsoleFormatter(formatterOptions);
-    this.markdownFormatter = new MarkdownFormatter(formatterOptions, true, true);
-    this.simpleMarkdownFormatter = new MarkdownFormatter(formatterOptions, false, false);
+    this.markdownFormatter = new MarkdownFormatter(formatterOptions);
   }
 
   onBegin(config: FullConfig, suite: Suite): void {
@@ -176,7 +173,7 @@ export class CodingAgentReporter implements Reporter {
     this.testCounter++;
   }
 
-  onTestEnd(test: TestCase, result: TestResult): void {
+  async onTestEnd(test: TestCase, result: TestResult): Promise<void> {
     if (!this.options.silent) {
       this.printTestResult(test, result);
     }
@@ -186,6 +183,12 @@ export class CodingAgentReporter implements Reporter {
     } else if (result.status === 'failed' || result.status === 'timedOut') {
       this.testSummary.failed++;
       this.captureFailure(test, result);
+
+      // Write individual report immediately to prevent data loss on timeout
+      const lastFailure = this.failures[this.failures.length - 1];
+      if (lastFailure) {
+        await this.writeIndividualReport(lastFailure);
+      }
     } else if (result.status === 'skipped') {
       this.testSummary.skipped++;
     }
@@ -214,15 +217,15 @@ export class CodingAgentReporter implements Reporter {
   }
 
   private captureFailure(test: TestCase, result: TestResult): void {
-    const error = result.errors[0];
-    if (!error) return;
+    if (!result.errors || result.errors.length === 0) return;
 
     const failure: FailureContext = {
       testTitle: test.title,
       suiteName: test.parent.title || '',
       testFile: test.location.file,
       lineNumber: test.location.line,
-      error: error,
+      error: result.errors[0], // Keep for compatibility
+      errors: result.errors, // All errors from Playwright
       stdout: result.stdout.map((item) => item.toString()),
       stderr: result.stderr.map((item) => item.toString()),
       duration: result.duration,
@@ -230,17 +233,40 @@ export class CodingAgentReporter implements Reporter {
       testIndex: this.testCounter,
     };
 
-    this.extractPageContext(result, failure);
-    this.extractAttachments(result, failure);
-    if (this.options.capturePageState) {
-      this.extractPageState(result, failure);
+    // Extract all data from attachments
+    this.extractFromAttachments(result, failure);
+
+    // Sort selectors if element not found
+    if (failure.pageState?.availableSelectors && failure.errors[0]?.message) {
+      const errorMsg = failure.errors[0].message;
+      const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+      if (failedSelectorMatch && errorMsg.includes('not found')) {
+        const failedSelector = failedSelectorMatch[1];
+        failure.pageState.availableSelectors = this.sortSelectorsBySimilarity(
+          failedSelector,
+          failure.pageState.availableSelectors
+        ).slice(0, 30); // Limit to 30 most relevant
+      }
     }
 
     this.failures.push(failure);
     this.testSummary.failures.push(failure);
   }
 
-  private extractPageContext(result: TestResult, failure: FailureContext): void {
+  private extractFromAttachments(result: TestResult, failure: FailureContext): void {
+    // Initialize page state
+    failure.pageState = {
+      url: undefined,
+      title: undefined,
+      visibleText: undefined,
+      availableSelectors: undefined,
+      htmlSnippet: undefined,
+      actionHistory: undefined,
+      debuggingSuggestions: undefined,
+    };
+
+    failure.consoleErrors = [];
+    failure.networkErrors = [];
     // Extract attachments first
     for (const attachment of result.attachments) {
       // Handle screenshots - Playwright may use different names
@@ -254,8 +280,9 @@ export class CodingAgentReporter implements Reporter {
         } else if (attachment.body) {
           failure.screenshot = attachment.body;
         }
-      } else if (attachment.name === 'page-url') {
-        failure.pageUrl = attachment.body?.toString('utf-8');
+      } else if (attachment.name === 'page-url' && attachment.body) {
+        failure.pageUrl = attachment.body.toString('utf-8');
+        failure.pageState!.url = failure.pageUrl;
       } else if (attachment.name === 'console-errors' && attachment.body) {
         try {
           const errors = JSON.parse(attachment.body.toString('utf-8'));
@@ -270,87 +297,23 @@ export class CodingAgentReporter implements Reporter {
             failure.networkErrors = errors;
           }
         } catch {}
-      }
-    }
-
-    // Fallback to extracting from stdout/stderr if not in attachments
-    if (
-      this.options.includeConsoleErrors &&
-      (!failure.consoleErrors || failure.consoleErrors.length === 0)
-    ) {
-      failure.consoleErrors = this.extractConsoleErrors(result);
-    }
-
-    if (
-      this.options.includeNetworkErrors &&
-      (!failure.networkErrors || failure.networkErrors.length === 0)
-    ) {
-      failure.networkErrors = this.extractNetworkErrors(result);
-    }
-  }
-
-  private extractConsoleErrors(result: TestResult): string[] {
-    const consoleErrors: string[] = [];
-
-    for (const step of result.steps) {
-      if (step.title?.includes('console.error') || step.title?.includes('console.warn')) {
-        consoleErrors.push(step.title);
-      }
-    }
-
-    for (const line of result.stdout) {
-      const text = line.toString();
-      if (text.includes('[Console Error]') || text.includes('[Console Warning]')) {
-        consoleErrors.push(text);
-      }
-    }
-
-    return consoleErrors;
-  }
-
-  private extractNetworkErrors(result: TestResult): string[] {
-    const networkErrors: string[] = [];
-
-    for (const line of result.stdout) {
-      const text = line.toString();
-      if (text.includes('ERR_') || text.includes('Failed to load resource')) {
-        networkErrors.push(text);
-      }
-    }
-
-    return networkErrors;
-  }
-
-  private extractPageState(result: TestResult, failure: FailureContext): void {
-    failure.pageState = {
-      url: failure.pageUrl,
-    };
-
-    // Extract page state from attachments
-    for (const attachment of result.attachments) {
-      if (attachment.name === 'page-state' && attachment.body) {
+      } else if (attachment.name === 'page-state' && attachment.body) {
         try {
           const fullState = JSON.parse(attachment.body.toString('utf-8'));
           failure.pageState = { ...failure.pageState, ...fullState };
         } catch {}
-      }
-      if (attachment.name === 'page-title' && attachment.body && failure.pageState) {
-        failure.pageState.title = attachment.body.toString('utf-8');
-      }
-      if (attachment.name === 'visible-text' && attachment.body && failure.pageState) {
-        // Visible text is already condensed from the test fixture
-        failure.pageState.visibleText = attachment.body.toString('utf-8');
-      }
-      if (attachment.name === 'available-selectors' && attachment.body && failure.pageState) {
+      } else if (attachment.name === 'page-title' && attachment.body) {
+        failure.pageState!.title = attachment.body.toString('utf-8');
+      } else if (attachment.name === 'visible-text' && attachment.body) {
+        failure.pageState!.visibleText = attachment.body.toString('utf-8');
+      } else if (attachment.name === 'available-selectors' && attachment.body) {
         try {
-          failure.pageState.availableSelectors = JSON.parse(attachment.body.toString('utf-8'));
+          failure.pageState!.availableSelectors = JSON.parse(attachment.body.toString('utf-8'));
         } catch {}
-      }
-      if (attachment.name === 'html-snippet' && attachment.body && failure.pageState) {
-        failure.pageState.htmlSnippet = attachment.body.toString('utf-8');
-      }
-      if (attachment.name === 'action-history' && attachment.body && failure.pageState) {
-        failure.pageState.actionHistory = attachment.body.toString('utf-8').split('\n');
+      } else if (attachment.name === 'html-snippet' && attachment.body) {
+        failure.pageState!.htmlSnippet = attachment.body.toString('utf-8');
+      } else if (attachment.name === 'action-history' && attachment.body) {
+        failure.pageState!.actionHistory = attachment.body.toString('utf-8').split('\n');
       }
     }
   }
@@ -536,7 +499,7 @@ export class CodingAgentReporter implements Reporter {
         }
       }
 
-      // Extract error data and format using ConsoleFormatter
+      // Format and output error using ConsoleFormatter
       const errorData = this.consoleFormatter.extractErrorData(failure, index + 1);
       const formattedOutput = this.consoleFormatter.formatError(errorData);
       console.log(formattedOutput);
@@ -555,36 +518,6 @@ export class CodingAgentReporter implements Reporter {
         `  ... and ${remaining} more failure${remaining > 1 ? 's' : ''}. See ${reportPath} for complete details.\n`
       );
     }
-  }
-
-  private stripAnsiCodes(text: string): string {
-    // Remove ANSI escape codes and special formatting
-    return text
-      .replace(/\x1b\[[0-9;]*m/g, '')
-      .replace(/\[2m|\[22m|\[31m|\[39m|\[32m/g, '')
-      .replace(/\u001b/g, '');
-  }
-
-  private printCodeSnippet(filePath: string, errorLine: number): void {
-    try {
-      const fileContent = fs.readFileSync(filePath, 'utf-8');
-      const lines = fileContent.split('\n');
-      const start = Math.max(0, errorLine - 3);
-      const end = Math.min(lines.length, errorLine + 2);
-
-      for (let i = start; i < end; i++) {
-        const lineNum = i + 1;
-        const prefix = lineNum === errorLine ? '    >' : '     ';
-        const lineNumStr = String(lineNum).padStart(4);
-        console.log(`${prefix}${lineNumStr} | ${lines[i]}`);
-
-        if (lineNum === errorLine) {
-          const match = lines[i].match(/\S/);
-          const indent = match ? match.index || 0 : 0;
-          console.log(`          | ${' '.repeat(indent)}^`);
-        }
-      }
-    } catch (e) {}
   }
 
   private async generateMarkdownReports(): Promise<void> {
@@ -703,95 +636,87 @@ export class CodingAgentReporter implements Reporter {
     }
 
     report += `---\n\n`;
+    report += `# Detailed Failures\n\n`;
 
-    for (let i = 0; i < this.failures.length; i++) {
-      const failure = this.failures[i];
+    // Simply concatenate the content from individual reports
+    for (const failure of this.failures) {
+      const testFolder = this.generateTestFolderName(failure);
+      const individualReportPath = path.join(this.reportsDir, testFolder, 'report.md');
 
-      // Sort selectors if needed
-      if (failure.pageState?.availableSelectors) {
-        const errorMsg = failure.error.message || '';
-        const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
-        const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
-
-        if (failedSelector && errorMsg.includes('not found')) {
-          failure.pageState.availableSelectors = this.sortSelectorsBySimilarity(
-            failedSelector,
-            failure.pageState.availableSelectors
-          );
-        }
+      // Read the individual report if it exists
+      if (fs.existsSync(individualReportPath)) {
+        const individualReport = await fs.promises.readFile(individualReportPath, 'utf-8');
+        report += individualReport;
+        report += `\n---\n\n`;
       }
-
-      // Screenshots are saved in individual test folders
-
-      // Extract error data and format using MarkdownFormatter
-      const errorData = this.markdownFormatter.extractErrorData(failure, i + 1);
-
-      // Override screenshot path for consolidated report
-      const testFolderName = this.generateTestFolderName(failure);
-      if (errorData.screenshotPath) {
-        errorData.screenshotPath = `./${testFolderName}/screenshot.png`;
-      }
-
-      const formattedOutput = this.markdownFormatter.formatError(errorData);
-      report += formattedOutput;
-
-      // Add link to individual test folder
-      report += `\n📁 **Test artifacts folder:** [${testFolderName}](./${testFolderName})\n`;
-
-      report += '\n---\n\n';
     }
 
     await fs.promises.writeFile(reportPath, report, 'utf-8');
   }
 
+  private async writeIndividualReport(failure: FailureContext): Promise<void> {
+    // Ensure reports directory exists
+    if (!fs.existsSync(this.reportsDir)) {
+      fs.mkdirSync(this.reportsDir, { recursive: true });
+    }
+
+    // Create folder for this test
+    const testFolder = this.generateTestFolderName(failure);
+    const testDir = path.join(this.reportsDir, testFolder);
+
+    if (!fs.existsSync(testDir)) {
+      fs.mkdirSync(testDir, { recursive: true });
+    }
+
+    // Save screenshot if present
+    if (failure.screenshot) {
+      const screenshotPath = path.join(testDir, 'screenshot.png');
+      fs.writeFileSync(screenshotPath, failure.screenshot);
+    }
+
+    // Generate the individual error report
+    const report = await this.generateIndividualErrorReport(failure);
+    const reportPath = path.join(testDir, 'report.md');
+    await fs.promises.writeFile(reportPath, report, 'utf-8');
+  }
+
   private async generateIndividualReports(): Promise<void> {
+    // This method is now deprecated since reports are written immediately
+    // We keep it for backward compatibility but it will do nothing since
+    // reports are already written in onTestEnd
     for (const failure of this.failures) {
-      // Create folder for this test
-      const testFolder = this.generateTestFolderName(failure);
-      const testDir = path.join(this.reportsDir, testFolder);
-
-      if (!fs.existsSync(testDir)) {
-        fs.mkdirSync(testDir, { recursive: true });
-      }
-
-      // Save screenshot if present
-      if (failure.screenshot) {
-        const screenshotPath = path.join(testDir, 'screenshot.png');
-        fs.writeFileSync(screenshotPath, failure.screenshot);
-      }
-
-      // Generate the individual error report
-      const report = await this.generateIndividualErrorReport(failure);
-      const reportPath = path.join(testDir, 'report.md');
-      await fs.promises.writeFile(reportPath, report, 'utf-8');
+      // Skip - already written in onTestEnd
     }
   }
 
   private async generateIndividualErrorReport(failure: FailureContext): Promise<string> {
-    // Sort selectors if needed (though individual reports don't sort by similarity)
-    // We keep the original order for individual reports
+    // Sort selectors by similarity if it's an element not found error
+    if (failure.pageState?.availableSelectors) {
+      const errorMsg = failure.error.message || '';
+      const failedSelectorMatch = errorMsg.match(/locator\(['"](.+?)['"]\)/);
+      const failedSelector = failedSelectorMatch ? failedSelectorMatch[1] : null;
 
-    // Extract error data and format using simple MarkdownFormatter (no collapsible sections, no emoji)
-    const errorData = this.simpleMarkdownFormatter.extractErrorData(failure, 1);
+      if (failedSelector && errorMsg.includes('not found')) {
+        failure.pageState.availableSelectors = this.sortSelectorsBySimilarity(
+          failedSelector,
+          failure.pageState.availableSelectors
+        );
+      }
+    }
 
-    // Override the header to use the simpler format for individual reports
+    // Extract error data and format using MarkdownFormatter
+    const errorData = this.markdownFormatter.extractErrorData(failure, 1);
+
+    // Generate report header
     let report = `# Error Context: ${failure.testTitle}\n\n`;
     report += `## Test Location\n`;
     report += `${failure.testFile}:${failure.lineNumber || 0}\n\n`;
 
-    // Format the rest using the simple markdown formatter
-    const formattedOutput = this.simpleMarkdownFormatter.formatError(errorData);
+    // Format the rest using the markdown formatter
+    const formattedOutput = this.markdownFormatter.formatError(errorData);
 
-    // Extract just the parts we want (skip the header which we already added)
-    const lines = formattedOutput.split('\n');
-    const startIndex = lines.findIndex(
-      (line) => line.startsWith('### Error') || line.startsWith('## Error')
-    );
-    if (startIndex !== -1) {
-      report += lines.slice(startIndex).join('\n');
-    } else {
-      report += formattedOutput;
-    }
+    // Add the formatted output
+    report += formattedOutput;
 
     return report;
   }
