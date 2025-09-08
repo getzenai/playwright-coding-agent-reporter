@@ -1,11 +1,12 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+
 import { Page } from '@playwright/test';
 
 // Constants for limits
-const MAX_TEXT_NODES = 100;
 const MAX_VISIBLE_TEXT_LENGTH = 2000;
-const MAX_SELECTORS = 50;
-const MAX_LINK_COUNT = 10;
-const MAX_SUGGESTIONS = 5;
 const MAX_HTML_SNIPPET_LENGTH = 3000;
 
 export interface PageDebugInfo {
@@ -26,7 +27,7 @@ export class PageStateCapture {
       );
 
       return await Promise.race([capturePromise, timeoutPromise]);
-    } catch (error) {
+    } catch {
       // Return partial data if capture fails or times out
       return {
         url: page.url(),
@@ -69,15 +70,21 @@ export class PageStateCapture {
   private static async getVisibleText(page: Page): Promise<string> {
     try {
       // Add timeout for evaluate (2 seconds)
-      const texts = await page.evaluate(() => {
-        // Simple text extraction
-        // @ts-ignore - browser context
-        const bodyText = document.body?.innerText || document.body?.textContent || '';
-        return bodyText.substring(0, 2000);
+      // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
+
+      const texts = await page.evaluate((): string => {
+        // Simple text extraction - cast to any for DOM access in browser context
+        const doc = document as any;
+        const bodyText = doc.body?.innerText || doc.body?.textContent || '';
+
+        return (bodyText as string).substring(0, 2000);
       });
 
-      return texts.substring(0, MAX_VISIBLE_TEXT_LENGTH);
-    } catch (e) {
+      if (typeof texts === 'string') {
+        return texts.substring(0, MAX_VISIBLE_TEXT_LENGTH);
+      }
+      return '';
+    } catch {
       return '';
     }
   }
@@ -85,12 +92,15 @@ export class PageStateCapture {
   private static async getAvailableSelectors(page: Page): Promise<string[]> {
     try {
       // Add timeout for evaluate (2 seconds)
-      const selectors = await page.evaluate(() => {
+      // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
+
+      const selectors = await page.evaluate((): string[] => {
         const elements: string[] = [];
 
         // Simple check - are we even in a page with content?
-        // @ts-ignore
-        if (!document.body) {
+        const doc = document as any;
+
+        if (!doc.body) {
           return ['No document body found'];
         }
 
@@ -104,13 +114,16 @@ export class PageStateCapture {
         };
 
         // Enhanced button selectors with better patterns
-        // @ts-ignore - browser context
-        document
+
+        doc
           .querySelectorAll('button, [role="button"], [type="submit"], [type="button"]')
-          .forEach((btn: any) => {
-            const text = btn.textContent?.trim();
-            const ariaLabel = btn.getAttribute('aria-label');
-            const dataTestId = btn.getAttribute('data-testid') || btn.getAttribute('data-test-id');
+          .forEach((button: any) => {
+            const text = button.textContent?.trim();
+
+            const ariaLabel = button.getAttribute('aria-label');
+
+            const dataTestId =
+              button.getAttribute('data-testid') || button.getAttribute('data-test-id');
 
             if (text && text.length > 0) {
               selectorCategories.interactive.push(`button:has-text("${text.substring(0, 30)}")`);
@@ -121,21 +134,25 @@ export class PageStateCapture {
             if (dataTestId) {
               selectorCategories.interactive.push(`[data-testid="${dataTestId}"]`);
             }
-            if (btn.id) selectorCategories.interactive.push(`#${btn.id}`);
-            if (btn.className && typeof btn.className === 'string') {
-              const mainClass = btn.className.split(' ').filter((c: string) => c.length > 0)[0];
+
+            if (button.id) selectorCategories.interactive.push(`#${button.id}`);
+
+            if (button.className && typeof button.className === 'string') {
+              const mainClass = button.className.split(' ').filter((c: string) => c.length > 0)[0];
               if (mainClass) selectorCategories.interactive.push(`button.${mainClass}`);
             }
           });
 
         // Enhanced link selectors
-        // @ts-ignore
-        document.querySelectorAll('a[href], [role="link"]').forEach((link: any, i: any) => {
+
+        doc.querySelectorAll('a[href], [role="link"]').forEach((linkElement: any, i: number) => {
           if (i >= 15) return; // Limit links
 
-          const text = link.textContent?.trim();
-          const href = link.getAttribute('href');
-          const ariaLabel = link.getAttribute('aria-label');
+          const text = linkElement.textContent?.trim();
+
+          const href = linkElement.getAttribute('href');
+
+          const ariaLabel = linkElement.getAttribute('aria-label');
 
           if (text && text.length > 0) {
             selectorCategories.navigation.push(`a:has-text("${text.substring(0, 30)}")`);
@@ -146,73 +163,93 @@ export class PageStateCapture {
           if (ariaLabel) {
             selectorCategories.navigation.push(`[aria-label="${ariaLabel}"]`);
           }
-          if (link.id) selectorCategories.navigation.push(`#${link.id}`);
+
+          if (linkElement.id) selectorCategories.navigation.push(`#${linkElement.id}`);
         });
 
         // Enhanced form input selectors
-        // @ts-ignore
-        document
-          .querySelectorAll('input, textarea, select, [contenteditable="true"]')
-          .forEach((input: any) => {
-            const type = input.getAttribute('type');
-            const name = input.getAttribute('name');
-            const placeholder = input.getAttribute('placeholder');
-            const label = input.getAttribute('aria-label') || input.getAttribute('title');
-            const dataTestId =
-              input.getAttribute('data-testid') || input.getAttribute('data-test-id');
 
-            if (input.id) selectorCategories.forms.push(`#${input.id}`);
-            if (name) selectorCategories.forms.push(`[name="${name}"]`);
-            if (placeholder) selectorCategories.forms.push(`[placeholder="${placeholder}"]`);
-            if (label) selectorCategories.forms.push(`[aria-label="${label}"]`);
-            if (dataTestId) selectorCategories.forms.push(`[data-testid="${dataTestId}"]`);
+        doc
+          .querySelectorAll('input, textarea, select, [contenteditable="true"]')
+          .forEach((inputElement: any) => {
+            const type = inputElement.getAttribute('type');
+
+            const name = inputElement.getAttribute('name');
+
+            const placeholder = inputElement.getAttribute('placeholder');
+
+            const label =
+              inputElement.getAttribute('aria-label') || inputElement.getAttribute('title');
+
+            const dataTestId =
+              inputElement.getAttribute('data-testid') || inputElement.getAttribute('data-test-id');
+
+            if (inputElement.id) selectorCategories.forms.push(`#${inputElement.id as string}`);
+            if (name) selectorCategories.forms.push(`[name="${name as string}"]`);
+            if (placeholder)
+              selectorCategories.forms.push(`[placeholder="${placeholder as string}"]`);
+            if (label) selectorCategories.forms.push(`[aria-label="${label as string}"]`);
+            if (dataTestId)
+              selectorCategories.forms.push(`[data-testid="${dataTestId as string}"]`);
             if (type && type !== 'hidden') {
-              selectorCategories.forms.push(`input[type="${type}"]`);
+              selectorCategories.forms.push(`input[type="${type as string}"]`);
             }
           });
 
         // Enhanced heading selectors
-        // @ts-ignore
-        document.querySelectorAll('h1, h2, h3, h4, [role="heading"]').forEach((heading: any) => {
-          const text = heading.textContent?.trim();
+
+        doc.querySelectorAll('h1, h2, h3, h4, [role="heading"]').forEach((headingElement: any) => {
+          const text = headingElement.textContent?.trim();
+
           if (text && text.length > 0) {
-            const tagName = heading.tagName?.toLowerCase() || 'h1';
-            selectorCategories.content.push(`${tagName}:has-text("${text.substring(0, 50)}")`);
+            const tagName = headingElement.tagName?.toLowerCase() || 'h1';
+
+            selectorCategories.content.push(
+              `${tagName as string}:has-text("${(text as string).substring(0, 50)}")`
+            );
           }
-          if (heading.id) selectorCategories.content.push(`#${heading.id}`);
+
+          if (headingElement.id) selectorCategories.content.push(`#${headingElement.id as string}`);
         });
 
         // Enhanced structural selectors with data attributes
-        // @ts-ignore
-        document
+
+        doc
           .querySelectorAll('[data-testid], [data-test-id], [data-cy], [data-test]')
-          .forEach((el: any) => {
+
+          .forEach((element: any) => {
             const testId =
-              el.getAttribute('data-testid') ||
-              el.getAttribute('data-test-id') ||
-              el.getAttribute('data-cy') ||
-              el.getAttribute('data-test');
+              element.getAttribute('data-testid') ||
+              element.getAttribute('data-test-id') ||
+              element.getAttribute('data-cy') ||
+              element.getAttribute('data-test');
             if (testId) {
-              selectorCategories.structural.push(`[data-testid="${testId}"]`);
+              selectorCategories.structural.push(`[data-testid="${testId as string}"]`);
             }
           });
 
         // Role-based selectors
-        // @ts-ignore
-        document.querySelectorAll('[role]').forEach((el: any) => {
-          const role = el.getAttribute('role');
-          const ariaLabel = el.getAttribute('aria-label');
-          if (role && !['presentation', 'none'].includes(role)) {
-            if (ariaLabel) {
-              selectorCategories.structural.push(`[role="${role}"][aria-label="${ariaLabel}"]`);
-            } else {
-              selectorCategories.structural.push(`[role="${role}"]`);
+
+        doc
+          .querySelectorAll('[role]')
+
+          .forEach((element: any) => {
+            const role = element.getAttribute('role');
+
+            const ariaLabel = element.getAttribute('aria-label');
+
+            if (role && !['presentation', 'none'].includes(role as string)) {
+              if (ariaLabel) {
+                selectorCategories.structural.push(
+                  `[role="${role as string}"][aria-label="${ariaLabel as string}"]`
+                );
+              } else {
+                selectorCategories.structural.push(`[role="${role as string}"]`);
+              }
             }
-          }
-        });
+          });
 
         // Class pattern matching for common UI components
-        // @ts-ignore
         const classPatterns = [
           'btn',
           'button',
@@ -226,16 +263,19 @@ export class PageStateCapture {
           'submit',
         ];
         classPatterns.forEach((pattern) => {
-          // @ts-ignore
-          document.querySelectorAll(`[class*="${pattern}"]`).forEach((el: any, i: any) => {
-            if (i >= 5) return; // Limit per pattern
-            const classes = (el.className?.split(' ') || []).filter(
-              (c: any) => typeof c === 'string' && c.length > 0 && c.includes(pattern)
-            );
-            if (classes.length > 0) {
-              selectorCategories.structural.push(`.${classes[0]}`);
-            }
-          });
+          doc
+            .querySelectorAll(`[class*="${pattern}"]`)
+
+            .forEach((el: any, i: number) => {
+              if (i >= 5) return; // Limit per pattern
+
+              const classes = ((el.className as string)?.split(' ') || []).filter(
+                (c: string) => typeof c === 'string' && c.length > 0 && c.includes(pattern)
+              );
+              if (classes.length > 0) {
+                selectorCategories.structural.push(`.${classes[0]}`);
+              }
+            });
         });
 
         // Combine all selectors with priority order
@@ -248,24 +288,26 @@ export class PageStateCapture {
         return [...new Set(elements)].slice(0, 50);
       });
 
-      return selectors;
-    } catch (e) {
+      if (Array.isArray(selectors)) {
+        return selectors;
+      }
+      return [];
+    } catch {
       return [];
     }
   }
 
   private static async getHtmlAroundSelector(page: Page, selector: string): Promise<string> {
     try {
-      const html = await page.evaluate((sel) => {
-        // @ts-ignore - browser context
-        let context = document.body;
+      // DOM operations within page.evaluate have complex typing issues - disable unsafe rules
+
+      const html = await page.evaluate((sel: string): string => {
+        const doc = document as any;
+        let context = doc.body;
 
         if (sel.startsWith('#')) {
           const id = sel.substring(1);
-          // @ts-ignore
-          const similar = document.querySelector(
-            `[id*="${id.substring(0, Math.min(5, id.length))}"]`
-          );
+          const similar = doc.querySelector(`[id*="${id.substring(0, Math.min(5, id.length))}"]`);
           if (similar) {
             context = similar.parentElement || context;
           }
@@ -273,8 +315,7 @@ export class PageStateCapture {
 
         if (sel.startsWith('.')) {
           const className = sel.substring(1);
-          // @ts-ignore
-          const similar = document.querySelector(
+          const similar = doc.querySelector(
             `[class*="${className.substring(0, Math.min(5, className.length))}"]`
           );
           if (similar) {
@@ -284,16 +325,20 @@ export class PageStateCapture {
 
         const container =
           context.querySelector('main, [role="main"], article, .container, .content') || context;
-        const html = container.innerHTML || container.outerHTML;
 
-        return html
+        const htmlContent = container.innerHTML || container.outerHTML;
+
+        return (htmlContent as string)
           .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
           .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
           .replace(/\s+/g, ' ')
           .substring(0, MAX_HTML_SNIPPET_LENGTH);
       }, selector);
 
-      return html;
+      if (typeof html === 'string') {
+        return html;
+      }
+      return '';
     } catch {
       return '';
     }

@@ -131,83 +131,49 @@ Each failure report includes:
 
 The reporter prints a per-test line for each test (unless `silent: true`), followed by detailed failure sections and a summary:
 
-```
-Running 25 tests using 4 workers
+````
+Running 1 tests using 4 workers
 
-  ✓   4 test/e2e/reporter-demo.spec.ts:4:7 › Basic Reporter Features › successful test - should pass (584ms)
-  -   5 test/e2e/reporter-demo.spec.ts:37:8 › Basic Reporter Features › skipped test
-  ✘   6 test/e2e/reporter-demo.spec.ts:20:7 › Basic Reporter Features › failing test - assertion failure (957ms)
-  ✘   7 test/e2e/reporter-demo.spec.ts:9:7 › Basic Reporter Features › failing test - element not found (5605ms)
-  ✘   9 test/e2e/reporter-demo.spec.ts:41:7 › Basic Reporter Features › test with missing element for selector similarity (5327ms)
-  ...
+  ✘   1 test/e2e/basic-test.spec.ts:3:5 › Basic timeout - standard Playwright (2165ms)
 
-  ## 7) test/e2e/reporter-demo.spec.ts:17:7 › Basic Reporter Features › failing test - element not found (5605ms)
-
+  ## 1) test/e2e/basic-test.spec.ts:7:7 › basic-test.spec.ts › Basic timeout - standard Playwright
+     Duration: 2165ms
   ### Error
   Error: expect(locator).toBeVisible() failed
 
-  Locator:  locator('#non-existent-element')
+  Locator:  locator('#does-not-exist')
   Expected: visible
   Received: <element(s) not found>
-  Timeout:  5000ms
+  Timeout:  2000ms
 
   Call log:
-    - Expect "toBeVisible" with timeout 5000ms
-    - waiting for locator('#non-existent-element')
+    - Expect "toBeVisible" with timeout 2000ms
+    - waiting for locator('#does-not-exist')
 
-  ⏱️ Timeout Context:
-  - Was waiting for: locator('#non-existent-element')
-  - Duration before timeout: 5605ms
-  - Page URL at timeout: https://playwright.dev/
-  - Last action before timeout: 2025-09-06T10:10:56.247Z - ✗ Console error: This is a console error for testing
+  ### Code Location
+  ```typescript
+    5 |
+    6 |   // This will timeout waiting for non-existent element
+  > 7 |   await expect(page.locator('#does-not-exist')).toBeVisible({ timeout: 2000 });
+      |                                                 ^
+    8 | });
+````
 
-  ### Error Location
-      15 |     });
-      16 |
-    > 17 |     await expect(page.locator('#non-existent-element')).toBeVisible();
-           |                                                         ^
-      18 |   });
+### 🔍 Page State When Failed
 
-  ### 🔍 Page State When Failed
-  **URL:** https://playwright.dev/
-  **Title:** Fast and reliable end-to-end testing for modern web apps | Playwright
-  **Screenshot:** Saved to screenshot.png
+**URL:** data:text/html,<h1>Test Page</h1>
+**Title:** unknown
+**Screenshot:** Saved to screenshot.png
 
-  ### 📜 Recent Actions
-    2025-09-06T10:10:55.921Z - → Navigating to: https://playwright.dev
-    2025-09-06T10:10:56.192Z - ✓ DOM ready: https://playwright.dev/
-    2025-09-06T10:10:56.210Z - ✓ Page loaded: https://playwright.dev/
-    2025-09-06T10:10:56.247Z - ✗ Console error: This is a console error for testing
+📝 **Full Error Context:** test-report-for-coding-agents/basic-test-spec-ts-basic-timeout-standard-playwright-1/report.md
 
-  ### 🎯 Available Selectors (sorted by relevance)
-    h3:has-text("Resilient • No flaky tests")
-    a:has-text("Skip to main content")
-    button:has-text("Node.js")
-    button:has-text("Search⌘K")
-    .clean-btn
-    .github-btn
-    [aria-label="76k+ stargazers on GitHub"]
-    [href="/community/welcome"]
-    ... and 42 more selectors
+1 failed
+1 total
+Finished in 3.1s
 
-  ### 📄 Visible Text (first 500 chars)
-    Skip to main content | Playwright | Docs | API | Node.js | Community | Search | ⌘ | K |
-    Playwright enables reliable end-to-end testing for modern web apps. | GET STARTED | Star | 76k+ |
-    Any browser • Any platform • One API | Cross-browser. Playwright supports all modern rendering
-    engines including Chromium, WebKit, and Firefox...
+📝 Detailed error report: test-report-for-coding-agents/all-failures.md
 
-  📝 **Full Error Context:** test-report-for-coding-agents/basic-reporter-features-failing-test-element-not-found-9/report.md
-
-  ... and 18 more failures. See test-report-for-coding-agents/all-failures.md for complete details.
-
-  23 failed
-  1 passed
-  1 skipped
-  25 total
-  Finished in 39.0s
-
-  📝 Detailed error report: test-report-for-coding-agents/all-failures.md
-```
+````
 
 ### Integration with AI/LLM Agents
 
@@ -241,7 +207,7 @@ test('user can complete checkout', async ({ page }) => {
   // Screenshots and available selectors captured on failure
   await expect(page.locator('.checkout-success')).toBeVisible();
 });
-```
+````
 
 ## Development
 
@@ -272,7 +238,7 @@ npm run watch
 
 ## Why Use This Reporter?
 
-The default Playwright reporter surfaces the error, but often lacks enough surrounding context for a coding model to understand what actually went wrong and what the page state was at failure time. It’s hard for coding agents to debug with just the error text.
+The default Playwright reporter surfaces the error, but often lacks enough surrounding context for a coding model to understand what actually went wrong and what the page state was at failure time. It's hard for coding agents to debug with just the error text.
 
 This reporter focuses on actionable context for agents:
 
@@ -281,6 +247,77 @@ This reporter focuses on actionable context for agents:
 - **Structured errors**: Consistent formatting with code snippets and stack traces
 - **Repro commands**: Ready-to-run commands per failing test
 - **Markdown reports**: Single consolidated file plus per-test reports for targeted review
+
+## Comparison: Standard vs Coding Agent Reporter
+
+Here's the same failing test with both reporters - notice how our reporter provides **solution context**:
+
+### Standard Playwright Line Reporter
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator:  locator('#submit-button')
+Expected: visible
+Received: <element(s) not found>
+Timeout:  2000ms
+
+Call log:
+  - Expect "toBeVisible" with timeout 2000ms
+  - waiting for locator('#submit-button')
+```
+
+### Our Coding Agent Reporter
+
+**Console Output:**
+
+```
+## 1) element not found - selector suggestions
+   Duration: 2219ms
+
+### Error
+Error: expect(locator).toBeVisible() failed
+
+Locator:  locator('#submit-button')
+Expected: visible
+Received: <element(s) not found>
+Timeout:  2000ms
+
+### Code Location
+  11 |
+  12 |     // Reporter should suggest similar selectors
+> 13 |     await expect(page.locator('#submit-button')).toBeVisible();
+     |                                                  ^
+  14 |   });
+
+### 🔍 Page State When Failed
+**URL:** data:text/html,<button id="submit-btn">Submit</button>
+**Screenshot:** Saved to screenshot.png
+
+### 📜 Recent Actions
+2025-09-08T17:53:07.848Z - → Navigating to: data:text/html,<button...>
+2025-09-08T17:53:07.859Z - ✓ DOM ready
+2025-09-08T17:53:07.860Z - ✓ Page loaded
+
+### 🎯 Available Selectors (sorted by relevance)
+#submit-btn
+button:has-text("Submit")
+
+### 📄 Visible Text (first 500 chars)
+Submit
+
+📝 **Full Error Context:** /path/to/detailed-report.md
+```
+
+**Key Differences:**
+
+- ✅ **Exact code location** with context lines
+- ✅ **Available selectors** - shows `#submit-btn` is available (typo fix!)
+- ✅ **Action history** - what happened before the failure
+- ✅ **Page context** - URL and visible content
+- ✅ **Structured markdown reports** - for detailed analysis
+
+**The Result:** AI agents can immediately see the typo (`#submit-button` vs `#submit-btn`) and suggest the fix!
 
 ## Contributing
 

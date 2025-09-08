@@ -1,4 +1,4 @@
-import type { TestCase, TestResult, TestError } from '@playwright/test/reporter';
+import type { TestError } from '@playwright/test/reporter';
 
 export interface CodingAgentReporterOptions {
   outputDir?: string;
@@ -31,6 +31,7 @@ export interface FailureContext {
   testFile: string;
   lineNumber: number | undefined;
   error: TestError;
+  errors: TestError[]; // All errors from Playwright
   stdout: string[];
   stderr: string[];
   consoleErrors?: string[];

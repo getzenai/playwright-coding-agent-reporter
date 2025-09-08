@@ -5,8 +5,14 @@ export default defineConfig({
   testDir: '.',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  retries: 0,
+  workers: 4,
+
+  // Reduce timeouts for faster test runs
+  timeout: 5000, // 5 seconds per test (default is 30000)
+  expect: {
+    timeout: 2000, // 2 seconds for expect assertions (default is 5000)
+  },
 
   reporter: [
     [
@@ -32,6 +38,8 @@ export default defineConfig({
     trace: 'off',
     screenshot: 'only-on-failure',
     video: 'off',
+    actionTimeout: 3000, // 3 seconds for actions like click, fill (default is no timeout)
+    navigationTimeout: 3000, // 3 seconds for page navigation (default is 30000)
   },
 
   projects: [

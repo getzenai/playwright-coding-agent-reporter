@@ -8,7 +8,7 @@ Fast, isolated unit tests that don't require a browser:
 
 - `reporter.test.ts` - Tests for the main reporter class safety features
 - `formatters.test.ts` - Tests for console and markdown formatters
-- `page-helper.test.ts` - Tests for page state capture utilities
+- `page-helper.test.ts` - Tests for page state capture utilities (PageStateCapture class)
 
 Run with: `npm run test:unit`
 
