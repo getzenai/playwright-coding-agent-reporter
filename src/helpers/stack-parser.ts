@@ -86,7 +86,7 @@ export function combineErrors(errors: TestError[]): {
 
   for (const error of errors) {
     // Collect unique messages
-    if (error.message && !messages.some((m) => m.includes(error.message!))) {
+    if (error.message && !messages.some((m) => m.includes(error.message))) {
       messages.push(error.message);
     }
 

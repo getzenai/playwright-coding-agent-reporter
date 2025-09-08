@@ -99,7 +99,7 @@ export class MarkdownFormatter extends BaseFormatter {
       if (hasStdout) {
         sections.push('**stdout:**  ');
         sections.push('```');
-        data.stdout!.slice(-20).forEach((line) => {
+        (data.stdout || []).slice(-20).forEach((line) => {
           // Last 20 lines
           sections.push(line);
         });
@@ -109,7 +109,7 @@ export class MarkdownFormatter extends BaseFormatter {
       if (hasStderr) {
         sections.push('**stderr:**  ');
         sections.push('```');
-        data.stderr!.slice(-20).forEach((line) => {
+        (data.stderr || []).slice(-20).forEach((line) => {
           // Last 20 lines
           sections.push(line);
         });

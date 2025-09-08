@@ -1,4 +1,4 @@
-import type { TestCase, TestResult, TestError } from '@playwright/test/reporter';
+import type { TestError } from '@playwright/test/reporter';
 
 export interface CodingAgentReporterOptions {
   outputDir?: string;
