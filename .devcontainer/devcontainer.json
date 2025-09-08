@@ -1,0 +1,13 @@
+{
+  "name": "Playwright Coding Agent Reporter",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-playwright.playwright"]
+    }
+  },
+  "postCreateCommand": "npm install && npm run build && npx playwright install chromium --with-deps",
+  "remoteUser": "node"
+}
