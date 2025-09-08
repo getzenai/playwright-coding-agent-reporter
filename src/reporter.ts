@@ -5,7 +5,6 @@ import {
   TestCase,
   TestResult,
   FullResult,
-  TestStep,
 } from '@playwright/test/reporter';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -44,7 +43,9 @@ export class CodingAgentReporter implements Reporter {
     let realAbs = abs;
     try {
       if (fs.existsSync(abs)) realAbs = fs.realpathSync(abs);
-    } catch {}
+    } catch {
+      // Ignore file system errors when resolving path
+    }
     const root = path.parse(realAbs).root;
     const relToCwd = path.relative(cwd, realAbs);
     // Must be inside CWD, not equal to CWD, and not filesystem root
@@ -58,7 +59,9 @@ export class CodingAgentReporter implements Reporter {
   private ensureOutputDir(): void {
     try {
       fs.mkdirSync(this.outputDir, { recursive: true });
-    } catch {}
+    } catch {
+      // Ignore directory creation errors
+    }
   }
 
   constructor(options: CodingAgentReporterOptions = {}) {
@@ -108,17 +111,16 @@ export class CodingAgentReporter implements Reporter {
     this.totalTests = this.countTests(suite);
 
     // Warn if our output folder clashes with any project outputDir (mirroring Playwright HTML reporter UX)
-    const projects: any[] = (config as any).projects || [];
+    const projects = (config as { projects?: Array<{ outputDir?: string }> }).projects || [];
     const reported = new Set<string>();
     for (const project of projects) {
-      const projectOutput: string | undefined = project?.outputDir;
+      const projectOutput = project.outputDir;
       if (!projectOutput) continue;
       const our = this.outputDir;
       if (this.isSubdirectory(our, projectOutput) || this.isSubdirectory(projectOutput, our)) {
         const key = `${our}|${projectOutput}`;
         if (!reported.has(key)) {
           reported.add(key);
-          // eslint-disable-next-line no-console
           console.log(
             `\n\x1b[31mConfiguration Warning:\x1b[0m Reporter output folder may clash with Playwright test output folder:\n\n` +
               `    reporter folder: ${our}\n` +
@@ -139,11 +141,14 @@ export class CodingAgentReporter implements Reporter {
             if (fs.existsSync(this.reportsDir)) {
               try {
                 fs.rmSync(this.reportsDir, { recursive: true, force: true });
-              } catch {}
+              } catch {
+                // Ignore removal errors
+              }
             }
-          } catch {}
+          } catch {
+            // Ignore cleanup errors
+          }
         } else {
-          // eslint-disable-next-line no-console
           console.log(
             `\n\x1b[33mSafety Warning:\x1b[0m Skipping cleanup of outputDir because it is not safely contained within the project: ${this.outputDir}\n`
           );
@@ -162,18 +167,18 @@ export class CodingAgentReporter implements Reporter {
 
   private countTests(suite: Suite): number {
     let count = 0;
-    for (const test of suite.allTests()) {
+    for (const _test of suite.allTests()) {
       count++;
     }
     return count;
   }
 
-  onTestBegin(test: TestCase, result: TestResult): void {
+  onTestBegin(_test: TestCase, _result: TestResult): void {
     this.testSummary.total++;
     this.testCounter++;
   }
 
-  async onTestEnd(test: TestCase, result: TestResult): Promise<void> {
+  onTestEnd(test: TestCase, result: TestResult): void {
     if (!this.options.silent) {
       this.printTestResult(test, result);
     }
@@ -187,7 +192,10 @@ export class CodingAgentReporter implements Reporter {
       // Write individual report immediately to prevent data loss on timeout
       const lastFailure = this.failures[this.failures.length - 1];
       if (lastFailure) {
-        await this.writeIndividualReport(lastFailure);
+        // Fire and forget - don't wait for the write to complete
+        this.writeIndividualReport(lastFailure).catch(() => {
+          // Ignore write errors
+        });
       }
     } else if (result.status === 'skipped') {
       this.testSummary.skipped++;
@@ -282,45 +290,68 @@ export class CodingAgentReporter implements Reporter {
         }
       } else if (attachment.name === 'page-url' && attachment.body) {
         failure.pageUrl = attachment.body.toString('utf-8');
-        failure.pageState!.url = failure.pageUrl;
+        if (failure.pageState) {
+          failure.pageState.url = failure.pageUrl;
+        }
       } else if (attachment.name === 'console-errors' && attachment.body) {
         try {
-          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          const errors: unknown = JSON.parse(attachment.body.toString('utf-8'));
           if (Array.isArray(errors)) {
             failure.consoleErrors = errors;
           }
-        } catch {}
+        } catch {
+          // Ignore JSON parsing errors for console-errors
+        }
       } else if (attachment.name === 'network-errors' && attachment.body) {
         try {
-          const errors = JSON.parse(attachment.body.toString('utf-8'));
+          const errors: unknown = JSON.parse(attachment.body.toString('utf-8'));
           if (Array.isArray(errors)) {
             failure.networkErrors = errors;
           }
-        } catch {}
+        } catch {
+          // Ignore JSON parsing errors for network-errors
+        }
       } else if (attachment.name === 'page-state' && attachment.body) {
         try {
-          const fullState = JSON.parse(attachment.body.toString('utf-8'));
-          failure.pageState = { ...failure.pageState, ...fullState };
-        } catch {}
+          const fullState: unknown = JSON.parse(attachment.body.toString('utf-8'));
+          if (typeof fullState === 'object' && fullState !== null) {
+            failure.pageState = { ...failure.pageState, ...(fullState as Record<string, unknown>) };
+          }
+        } catch {
+          // Ignore JSON parsing errors for page-state
+        }
       } else if (attachment.name === 'page-title' && attachment.body) {
-        failure.pageState!.title = attachment.body.toString('utf-8');
+        if (failure.pageState) {
+          failure.pageState.title = attachment.body.toString('utf-8');
+        }
       } else if (attachment.name === 'visible-text' && attachment.body) {
-        failure.pageState!.visibleText = attachment.body.toString('utf-8');
+        if (failure.pageState) {
+          failure.pageState.visibleText = attachment.body.toString('utf-8');
+        }
       } else if (attachment.name === 'available-selectors' && attachment.body) {
         try {
-          failure.pageState!.availableSelectors = JSON.parse(attachment.body.toString('utf-8'));
-        } catch {}
+          const selectors: unknown = JSON.parse(attachment.body.toString('utf-8'));
+          if (failure.pageState && Array.isArray(selectors)) {
+            failure.pageState.availableSelectors = selectors;
+          }
+        } catch {
+          // Ignore JSON parsing errors for available-selectors
+        }
       } else if (attachment.name === 'html-snippet' && attachment.body) {
-        failure.pageState!.htmlSnippet = attachment.body.toString('utf-8');
+        if (failure.pageState) {
+          failure.pageState.htmlSnippet = attachment.body.toString('utf-8');
+        }
       } else if (attachment.name === 'action-history' && attachment.body) {
-        failure.pageState!.actionHistory = attachment.body.toString('utf-8').split('\n');
+        if (failure.pageState) {
+          failure.pageState.actionHistory = attachment.body.toString('utf-8').split('\n');
+        }
       }
     }
   }
 
   private findSimilarSelectors(target: string, available: string[]): string[] {
     const similar: string[] = [];
-    const targetLower = target.toLowerCase();
+    const _targetLower = target.toLowerCase();
 
     const parts = target.match(/[a-zA-Z0-9_-]+/g) || [];
 
@@ -447,7 +478,7 @@ export class CodingAgentReporter implements Reporter {
     }
   }
 
-  async onEnd(result: FullResult): Promise<void> {
+  async onEnd(_result: FullResult): Promise<void> {
     this.testSummary.duration = Date.now() - this.startTime;
 
     await this.generateMarkdownReports();
@@ -534,7 +565,7 @@ export class CodingAgentReporter implements Reporter {
     await this.generateConsolidatedReport();
 
     // Generate individual test reports in their own folders
-    await this.generateIndividualReports();
+    this.generateIndividualReports();
   }
 
   private generateTestFolderName(failure: FailureContext): string {
@@ -675,21 +706,21 @@ export class CodingAgentReporter implements Reporter {
     }
 
     // Generate the individual error report
-    const report = await this.generateIndividualErrorReport(failure);
+    const report = this.generateIndividualErrorReport(failure);
     const reportPath = path.join(testDir, 'report.md');
     await fs.promises.writeFile(reportPath, report, 'utf-8');
   }
 
-  private async generateIndividualReports(): Promise<void> {
+  private generateIndividualReports(): void {
     // This method is now deprecated since reports are written immediately
     // We keep it for backward compatibility but it will do nothing since
     // reports are already written in onTestEnd
-    for (const failure of this.failures) {
+    for (const _failure of this.failures) {
       // Skip - already written in onTestEnd
     }
   }
 
-  private async generateIndividualErrorReport(failure: FailureContext): Promise<string> {
+  private generateIndividualErrorReport(failure: FailureContext): string {
     // Sort selectors by similarity if it's an element not found error
     if (failure.pageState?.availableSelectors) {
       const errorMsg = failure.error.message || '';

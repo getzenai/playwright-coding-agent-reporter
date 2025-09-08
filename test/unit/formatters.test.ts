@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ConsoleFormatter } from '../../src/formatters/console';
 import { MarkdownFormatter } from '../../src/formatters/markdown';
-import { BaseFormatter as ErrorFormatter } from '../../src/formatters/base';
 import type { FailureContext } from '../../src/types';
 
 describe('ErrorFormatter Base Class', () => {
@@ -15,14 +14,14 @@ describe('ErrorFormatter Base Class', () => {
   describe('stripAnsiCodes', () => {
     it('should remove ANSI color codes', () => {
       const input = '\x1b[31mError\x1b[39m: \x1b[32mSuccess\x1b[0m';
-      // @ts-ignore - accessing protected method for testing
+      // @ts-expect-error - accessing protected method for testing
       const result = formatter.stripAnsiCodes(input);
       expect(result).toBe('Error: Success');
     });
 
     it('should remove various ANSI codes', () => {
       const input = '[2mDim[22m [31mRed[39m [32mGreen';
-      // @ts-ignore - accessing protected method for testing
+      // @ts-expect-error - accessing protected method for testing
       const result = formatter.stripAnsiCodes(input);
       expect(result).toBe('Dim Red Green');
     });
@@ -31,14 +30,14 @@ describe('ErrorFormatter Base Class', () => {
   describe('truncateText', () => {
     it('should not truncate text shorter than limit', () => {
       const text = 'Short text';
-      // @ts-ignore - accessing protected method for testing
+      // @ts-expect-error - accessing protected method for testing
       const result = formatter.truncateText(text, 20);
       expect(result).toBe('Short text');
     });
 
     it('should truncate text longer than limit', () => {
       const text = 'This is a very long text that needs truncation';
-      // @ts-ignore - accessing protected method for testing
+      // @ts-expect-error - accessing protected method for testing
       const result = formatter.truncateText(text, 10);
       expect(result).toBe('This is a ...');
     });
