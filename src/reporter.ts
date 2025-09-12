@@ -125,6 +125,9 @@ export class CodingAgentReporter implements Reporter {
 
     console.log('Listing tests:');
 
+    // Track unique files for the summary
+    const uniqueFiles = new Set<string>();
+
     for (const test of tests) {
       const location = test.location;
       const fileName = location.file;
@@ -132,13 +135,19 @@ export class CodingAgentReporter implements Reporter {
       const column = location.column;
       const testPath = this.getFullTestPath(test);
 
+      uniqueFiles.add(fileName);
       console.log(`  ${fileName}:${line}:${column} › ${testPath}`);
     }
+
+    // Print summary like Playwright's line reporter
+    const fileCount = uniqueFiles.size;
+    const fileWord = fileCount === 1 ? 'file' : 'files';
+    console.log(`\nTotal: ${tests.length} tests in ${fileCount} ${fileWord}`);
   }
 
   private getFullTestPath(test: TestCase): string {
     const parts: string[] = [];
-    let current = test.parent;
+    let current: Suite | undefined = test.parent;
 
     while (current && current.title) {
       parts.unshift(current.title);
