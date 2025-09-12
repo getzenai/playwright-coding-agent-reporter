@@ -117,21 +117,21 @@ export class CodingAgentReporter implements Reporter {
 
   private listAllTests(suite: Suite): void {
     const tests = suite.allTests();
-    
+
     if (tests.length === 0) {
       console.log('No tests found.');
       return;
     }
 
     console.log('Listing tests:');
-    
+
     for (const test of tests) {
       const location = test.location;
       const fileName = location.file;
       const line = location.line;
       const column = location.column;
       const testPath = this.getFullTestPath(test);
-      
+
       console.log(`  ${fileName}:${line}:${column} › ${testPath}`);
     }
   }
@@ -139,13 +139,13 @@ export class CodingAgentReporter implements Reporter {
   private getFullTestPath(test: TestCase): string {
     const parts: string[] = [];
     let current = test.parent;
-    
+
     while (current && current.title) {
       parts.unshift(current.title);
       current = current.parent;
     }
     parts.push(test.title);
-    
+
     return parts.join(' › ');
   }
 
