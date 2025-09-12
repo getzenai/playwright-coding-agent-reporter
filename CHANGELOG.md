@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.2...v1.1.3) (2025-09-12)
+
+
+### Bug Fixes
+
+* implement --list flag functionality for test listing ([#14](https://github.com/getzenai/playwright-coding-agent-reporter/issues/14)) ([50d7058](https://github.com/getzenai/playwright-coding-agent-reporter/commit/50d70582456458d85485fc0d583083ae865a7516)), closes [#13](https://github.com/getzenai/playwright-coding-agent-reporter/issues/13)
+
 ## [1.1.2](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.1...v1.1.2) (2025-09-08)
 
 
