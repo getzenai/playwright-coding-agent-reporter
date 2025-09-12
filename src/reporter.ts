@@ -107,7 +107,55 @@ export class CodingAgentReporter implements Reporter {
     this.markdownFormatter = new MarkdownFormatter(formatterOptions);
   }
 
+  printsToStdio(): boolean {
+    return true;
+  }
+
+  private isListMode(): boolean {
+    return process.argv.includes('--list');
+  }
+
+  private listAllTests(suite: Suite): void {
+    const tests = suite.allTests();
+    
+    if (tests.length === 0) {
+      console.log('No tests found.');
+      return;
+    }
+
+    console.log('Listing tests:');
+    
+    for (const test of tests) {
+      const location = test.location;
+      const fileName = location.file;
+      const line = location.line;
+      const column = location.column;
+      const testPath = this.getFullTestPath(test);
+      
+      console.log(`  ${fileName}:${line}:${column} › ${testPath}`);
+    }
+  }
+
+  private getFullTestPath(test: TestCase): string {
+    const parts: string[] = [];
+    let current = test.parent;
+    
+    while (current && current.title) {
+      parts.unshift(current.title);
+      current = current.parent;
+    }
+    parts.push(test.title);
+    
+    return parts.join(' › ');
+  }
+
   onBegin(config: FullConfig, suite: Suite): void {
+    // Handle list mode - exit early without setting up test execution
+    if (this.isListMode()) {
+      this.listAllTests(suite);
+      return;
+    }
+
     this.startTime = Date.now();
     this.workers = config.workers || 1;
     this.totalTests = this.countTests(suite);
@@ -176,11 +224,21 @@ export class CodingAgentReporter implements Reporter {
   }
 
   onTestBegin(_test: TestCase, _result: TestResult): void {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
     this.testSummary.total++;
     this.testCounter++;
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
     if (!this.options.silent) {
       this.printTestResult(test, result);
     }
@@ -489,6 +547,11 @@ export class CodingAgentReporter implements Reporter {
   }
 
   async onEnd(_result: FullResult): Promise<void> {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
     this.testSummary.duration = Date.now() - this.startTime;
 
     // Print newline after dots if we ended mid-line
