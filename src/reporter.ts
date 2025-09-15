@@ -158,6 +158,66 @@ export class CodingAgentReporter implements Reporter {
     return parts.join(' › ');
   }
 
+  onError(error: Error): void {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
+    // Display error messages (commonly from web server startup failures)
+    if (!this.options.silent) {
+      const errorMessage = error.message || error.toString();
+      console.error(`\n\x1b[31mError:\x1b[0m ${errorMessage}`);
+      if (error.stack) {
+        console.error(error.stack);
+      }
+    }
+  }
+
+  onStdOut(chunk: string | Buffer, test?: TestCase, _result?: TestResult): void {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
+    // Display stdout (including web server logs)
+    if (!this.options.silent) {
+      const text = chunk.toString();
+      // When test is undefined/null, it's likely from web server or global scope
+      // Add [WebServer] prefix if not already present and not from a test
+      if (!test && !text.includes('[WebServer]')) {
+        // Split by newlines to prefix each line
+        const lines = text.split('\n');
+        const prefixedLines = lines.map((line) => (line ? `[WebServer] ${line}` : ''));
+        process.stdout.write(prefixedLines.join('\n'));
+      } else {
+        process.stdout.write(text);
+      }
+    }
+  }
+
+  onStdErr(chunk: string | Buffer, test?: TestCase, _result?: TestResult): void {
+    // Skip processing in list mode
+    if (this.isListMode()) {
+      return;
+    }
+
+    // Display stderr (including web server errors)
+    if (!this.options.silent) {
+      const text = chunk.toString();
+      // When test is undefined/null, it's likely from web server or global scope
+      // Add [WebServer] prefix if not already present and not from a test
+      if (!test && !text.includes('[WebServer]')) {
+        // Split by newlines to prefix each line
+        const lines = text.split('\n');
+        const prefixedLines = lines.map((line) => (line ? `[WebServer] ${line}` : ''));
+        process.stderr.write(prefixedLines.join('\n'));
+      } else {
+        process.stderr.write(text);
+      }
+    }
+  }
+
   onBegin(config: FullConfig, suite: Suite): void {
     // Handle list mode - exit early without setting up test execution
     if (this.isListMode()) {
