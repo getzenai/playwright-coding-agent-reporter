@@ -11,6 +11,7 @@ import * as path from 'path';
 import { CodingAgentReporterOptions, FailureContext, TestSummary } from './types';
 import { ConsoleFormatter } from './formatters/console';
 import { MarkdownFormatter } from './formatters/markdown';
+import { SummaryFormatter } from './formatters/summary';
 import { FormatterOptions } from './formatters/base';
 
 // Constants
@@ -29,6 +30,7 @@ export class CodingAgentReporter implements Reporter {
   private workers: number = 1;
   private consoleFormatter: ConsoleFormatter;
   private markdownFormatter: MarkdownFormatter;
+  private summaryFormatter: SummaryFormatter;
   private dotColumn: number = 0;
   private failedTestsForDotMode: Array<{ test: TestCase; result: TestResult }> = [];
 
@@ -105,6 +107,7 @@ export class CodingAgentReporter implements Reporter {
 
     this.consoleFormatter = new ConsoleFormatter(formatterOptions);
     this.markdownFormatter = new MarkdownFormatter(formatterOptions);
+    this.summaryFormatter = new SummaryFormatter();
   }
 
   printsToStdio(): boolean {
@@ -568,43 +571,19 @@ export class CodingAgentReporter implements Reporter {
       console.log('');
     }
 
-    // Print failed test names immediately after dots (before detailed failures)
-    if (!this.options.silent && this.failedTestsForDotMode.length > 0) {
+    // Print the new summary format first
+    if (!this.options.silent) {
       console.log('');
-      for (const { test, result } of this.failedTestsForDotMode) {
-        const fileName = test.location.file.replace(process.cwd() + '/', '');
-        const duration = result.duration ? ` (${result.duration}ms)` : '';
-        const testPath = `${fileName}:${test.location.line}:${test.location.column}`;
-        const suiteName = test.parent.title || '';
-
-        console.log(`  \x1b[31m✘\x1b[0m   ${testPath} › ${suiteName} › ${test.title}${duration}`);
-      }
+      const summary = this.summaryFormatter.formatSummary(this.testSummary, this.startTime);
+      console.log(summary);
     }
 
     await this.generateMarkdownReports();
 
-    if (!this.options.silent && this.failures.length > 0) {
-      console.log('');
+    // Optionally print detailed failures if verboseErrors is true and not in silent mode
+    if (!this.options.silent && this.options.verboseErrors && this.failures.length > 0) {
+      console.log('\n### Detailed Failures\n');
       this.printDetailedFailures();
-    }
-
-    if (!this.options.silent) {
-      const passed = this.testSummary.passed;
-      const failed = this.testSummary.failed;
-      const skipped = this.testSummary.skipped;
-
-      if (failed > 0) {
-        console.log(`\n  ${failed} failed`);
-        if (passed > 0) console.log(`  ${passed} passed`);
-        if (skipped > 0) console.log(`  ${skipped} skipped`);
-        console.log(`  ${this.testSummary.total} total`);
-        console.log(`  Finished in ${(this.testSummary.duration / 1000).toFixed(1)}s`);
-
-        const reportPath = path.join(this.reportsDir, 'all-failures.md');
-        console.log(`\n  📝 Detailed error report: ${reportPath}`);
-      } else {
-        console.log(`\n  ${passed} passed (${(this.testSummary.duration / 1000).toFixed(1)}s)`);
-      }
     }
   }
 
