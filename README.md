@@ -82,7 +82,7 @@ For optimal debugging, use:
 | `maxErrorLength`       | number  | `5000`                            | Maximum error message length                                                            |
 | `singleReportFile`     | boolean | `true`                            | Generate single consolidated error-context.md file                                      |
 | `capturePageState`     | boolean | `true`                            | Capture page state on failure (URL, title, available selectors, visible text)           |
-| `verboseErrors`        | boolean | `true`                            | Include detailed error information                                                      |
+| `verboseErrors`        | boolean | `true`                            | Show detailed error list after summary. Set to `false` for only concise summary         |
 | `maxInlineErrors`      | number  | `5`                               | Maximum number of errors to show in console output                                      |
 | `showCodeSnippet`      | boolean | `true`                            | Show code snippet at error location                                                     |
 
@@ -129,16 +129,27 @@ Each failure report includes:
 
 ### Console Output Example
 
-The reporter now shows dot progress for test execution, followed by failed test names, and detailed failure sections with a summary:
+The reporter shows a concise summary at the end of test execution:
 
 ```
 Running 16 tests using 4 workers
 
 ·F·F·F-FFFF·FFFFF
 
-  ✘   test/e2e/reporter-demo.spec.ts:16:7 › Reporter Core Features › assertion failure with context (583ms)
-  ✘   test/e2e/reporter-demo.spec.ts:23:7 › Reporter Core Features › console errors capture (2769ms)
-  ✘   test/e2e/reporter-demo.spec.ts:9:7 › Reporter Core Features › element not found - suggestions (2764ms)
+E2E Test Run: 1/16 passed (15 failed/skipped) in 3.1s
+
+  FAILED (15):
+    ✗ reporter-demo.spec.ts:16 - Reporter Core Features - assertion failure with context - Expected "Expected Title", got "Actual Title"
+    ✗ reporter-demo.spec.ts:23 - Reporter Core Features - console errors capture - Uncaught exception
+    ✗ reporter-demo.spec.ts:9 - Reporter Core Features - element not found - suggestions - Element not found: [.non-existent-selector]
+
+  See for failed test details: ./test-report-for-coding-agents/
+```
+
+When `verboseErrors: true` (default), detailed error information follows:
+
+```
+### Detailed Failures
 
   ## 1) test/e2e/reporter-demo.spec.ts:20:7 › Reporter Core Features › assertion failure with context
      Duration: 583ms
@@ -162,13 +173,22 @@ Running 16 tests using 4 workers
 
   📝 **Full Error Context:** test-report-for-coding-agents/reporter-core-features-assertion-failure-with-context-4/report.md
 
-15 failed
-1 passed
-16 total
-Finished in 3.1s
+```
+
+### Summary Format Features
+
+The new concise summary format provides:
+
+- **One-line overview**: Shows passed/failed/skipped counts and total duration
+- **Failed tests only**: Lists only failed tests with file:line, test name, and brief error
+- **Skipped tests**: Shows skipped tests when present
+- **Report directory**: Points to detailed reports using your configured `outputDir`
+
+To show only the summary without detailed errors, set `verboseErrors: false` in your configuration
 
 📝 Detailed error report: test-report-for-coding-agents/all-failures.md
-```
+
+````
 
 ### Integration with AI/LLM Agents
 
@@ -202,7 +222,7 @@ test('user can complete checkout', async ({ page }) => {
   // Screenshots and available selectors captured on failure
   await expect(page.locator('.checkout-success')).toBeVisible();
 });
-```
+````
 
 ## Development
 

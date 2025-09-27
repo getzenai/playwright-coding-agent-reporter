@@ -107,7 +107,7 @@ export class CodingAgentReporter implements Reporter {
 
     this.consoleFormatter = new ConsoleFormatter(formatterOptions);
     this.markdownFormatter = new MarkdownFormatter(formatterOptions);
-    this.summaryFormatter = new SummaryFormatter();
+    this.summaryFormatter = new SummaryFormatter(this.options.outputDir);
   }
 
   printsToStdio(): boolean {

@@ -1,6 +1,8 @@
 import { TestSummary, FailureContext } from '../types';
 
 export class SummaryFormatter {
+  constructor(private outputDir: string = 'test-report-for-coding-agents') {}
+
   formatSummary(summary: TestSummary, startTime: number): string {
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     const totalRun = summary.passed + summary.failed + summary.skipped;
@@ -19,16 +21,16 @@ export class SummaryFormatter {
     // Failed tests section
     if (summary.failed > 0) {
       output += `\n  FAILED (${summary.failed}):\n`;
-      const failedTests = summary.failures.filter(f =>
-        f.error?.message && !this.isSkippedTest(f)
+      const failedTests = summary.failures.filter(
+        (f) => f.error?.message && !this.isSkippedTest(f)
       );
 
-      failedTests.forEach(failure => {
+      failedTests.forEach((failure) => {
         const fileName = failure.testFile.replace(process.cwd() + '/', '');
         const errorType = this.extractErrorType(failure);
-        const testName = failure.suiteName ?
-          `${failure.suiteName} - ${failure.testTitle}` :
-          failure.testTitle;
+        const testName = failure.suiteName
+          ? `${failure.suiteName} - ${failure.testTitle}`
+          : failure.testTitle;
 
         output += `    ✗ ${fileName}:${failure.lineNumber || '?'} - ${testName} - ${errorType}\n`;
       });
@@ -40,15 +42,15 @@ export class SummaryFormatter {
       // Note: We don't have direct access to skipped test details in the failures array
       // since Playwright doesn't capture them as failures. This is a limitation.
       // For now, we'll check if any failures might be skip-related
-      const skippedTests = summary.failures.filter(f => this.isSkippedTest(f));
+      const skippedTests = summary.failures.filter((f) => this.isSkippedTest(f));
 
       if (skippedTests.length > 0) {
-        skippedTests.forEach(failure => {
+        skippedTests.forEach((failure) => {
           const fileName = failure.testFile.replace(process.cwd() + '/', '');
           const skipReason = this.extractSkipReason(failure);
-          const testName = failure.suiteName ?
-            `${failure.suiteName} - ${failure.testTitle}` :
-            failure.testTitle;
+          const testName = failure.suiteName
+            ? `${failure.suiteName} - ${failure.testTitle}`
+            : failure.testTitle;
 
           output += `    ⊘ ${fileName}:${failure.lineNumber || '?'} - ${testName} - ${skipReason}\n`;
         });
@@ -60,7 +62,9 @@ export class SummaryFormatter {
 
     // Add pointer to detailed reports
     if (summary.failed > 0) {
-      output += `\n  See for failed test details: ./test-report-for-coding-agents/\n`;
+      // Use relative path from current working directory
+      const relativePath = this.outputDir.startsWith('./') ? this.outputDir : `./${this.outputDir}`;
+      output += `\n  See for failed test details: ${relativePath}/\n`;
     }
 
     return output;
@@ -126,10 +130,12 @@ export class SummaryFormatter {
 
   private isSkippedTest(failure: FailureContext): boolean {
     const message = failure.error?.message?.toLowerCase() || '';
-    return message.includes('skip') ||
-           message.includes('dependency failed') ||
-           message.includes('setup failed') ||
-           message.includes('condition not met');
+    return (
+      message.includes('skip') ||
+      message.includes('dependency failed') ||
+      message.includes('setup failed') ||
+      message.includes('condition not met')
+    );
   }
 
   private extractSkipReason(failure: FailureContext): string {
