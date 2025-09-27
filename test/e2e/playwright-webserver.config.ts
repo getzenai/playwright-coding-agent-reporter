@@ -7,7 +7,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  
+
   reporter: [
     [
       path.resolve(__dirname, '../../dist/index.js'),
@@ -37,7 +37,7 @@ export default defineConfig({
     baseURL: 'http://localhost:3456',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    
+
     // Short timeouts to trigger errors for testing
     actionTimeout: 3000,
     navigationTimeout: 3000,

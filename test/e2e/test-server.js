@@ -4,7 +4,7 @@ const PORT = process.env.PORT || 3456;
 
 const server = http.createServer((req, res) => {
   console.log(`[${new Date().toISOString()}] Request: ${req.method} ${req.url}`);
-  
+
   if (req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`

@@ -7,7 +7,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  
+
   reporter: [
     [
       path.resolve(__dirname, '../../dist/index.js'),
