@@ -18,6 +18,8 @@
     "test:unit:ui": "vitest --ui",
     "test:e2e": "playwright test --config=test/e2e/playwright.config.ts",
     "test:example": "playwright test --config=test/e2e/playwright.config.ts",
+    "test:webserver": "playwright test --config=test/e2e/playwright-webserver.config.ts test/e2e/web-server.spec.ts",
+    "test:failing-webserver": "playwright test --config=test/e2e/playwright-failing-webserver.config.ts test/e2e/web-server.spec.ts || true",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .prettierignore",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",

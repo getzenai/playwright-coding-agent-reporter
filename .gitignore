@@ -4,6 +4,7 @@ dist/
 .DS_Store
 test-results/
 test-report-for-coding-agents/
+test-report-webserver/
 playwright-report/
 playwright/.cache/
 temp-screenshot.png
