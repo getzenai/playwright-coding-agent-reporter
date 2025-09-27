@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.2.0...v1.2.1) (2025-09-27)
+
+
+### Bug Fixes
+
+* add web server log display support ([#16](https://github.com/getzenai/playwright-coding-agent-reporter/issues/16)) ([fff3c69](https://github.com/getzenai/playwright-coding-agent-reporter/commit/fff3c69f16e26b616b29f2b1b24237f0a2d6c961)), closes [#15](https://github.com/getzenai/playwright-coding-agent-reporter/issues/15)
+
 # [1.2.0](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.3...v1.2.0) (2025-09-27)
 
 
