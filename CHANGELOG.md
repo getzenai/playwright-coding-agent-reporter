@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.3...v1.2.0) (2025-09-27)
+
+
+### Features
+
+* implement concise summary format for test reports ([#18](https://github.com/getzenai/playwright-coding-agent-reporter/issues/18)) ([a1e1c63](https://github.com/getzenai/playwright-coding-agent-reporter/commit/a1e1c63785f4c316b9e5e3b526b222cc571633c0))
+
 ## [1.1.3](https://github.com/getzenai/playwright-coding-agent-reporter/compare/v1.1.2...v1.1.3) (2025-09-12)
 
 
